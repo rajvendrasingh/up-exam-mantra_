@@ -1,0 +1,53 @@
+========================================
+GitHub Upload Commands - FINAL
+Username: rajvendrasingh
+Repository: Up-Exam-Mantra
+========================================
+
+STEP 1: Repository Already Created? ✅
+--------------------------------------
+If you already created "Up Exam Mantra" on GitHub, great!
+GitHub URL will be: https://github.com/rajvendrasingh/Up-Exam-Mantra
+
+
+STEP 2: Run These Commands (Copy & Paste One by One)
+-----------------------------------------------------
+
+git init
+
+git add .
+
+git commit -m "Initial commit: UP Exam Mantra complete project"
+
+git remote add origin https://github.com/rajvendrasingh/Up-Exam-Mantra.git
+
+git branch -M main
+
+git push -u origin main
+
+
+========================================
+If Password Asked
+========================================
+
+Username: rajvendrasingh
+Password: [Use Personal Access Token from https://github.com/settings/tokens]
+
+
+========================================
+After Upload, Visit:
+========================================
+
+https://github.com/rajvendrasingh/Up-Exam-Mantra
+
+
+========================================
+Future Updates
+========================================
+
+git add .
+git commit -m "Updated features"
+git push
+
+
+========================================
