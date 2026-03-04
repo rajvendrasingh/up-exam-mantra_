@@ -1,0 +1,73 @@
+========================================
+GitHub Upload Commands
+Username: rajvendrasingh
+Repository: up-exam-mantra
+========================================
+
+STEP 1: Create Repository on GitHub
+------------------------------------
+1. Go to: https://github.com/new
+2. Repository name: up-exam-mantra
+3. Description: UP Exam Mantra - Online Test Portal
+4. Choose: Public or Private
+5. DON'T check "Initialize with README"
+6. Click "Create repository"
+
+
+STEP 2: Run These Commands (Copy & Paste)
+------------------------------------------
+
+git init
+
+git add .
+
+git commit -m "Initial commit: UP Exam Mantra complete project"
+
+git remote add origin https://github.com/rajvendrasingh/up-exam-mantra.git
+
+git branch -M main
+
+git push -u origin main
+
+
+DONE! Your code will be uploaded to:
+https://github.com/rajvendrasingh/up-exam-mantra
+
+
+========================================
+Future Updates (After Making Changes)
+========================================
+
+git add .
+git commit -m "Updated features"
+git push
+
+
+========================================
+If Asked for Password
+========================================
+
+GitHub uses Personal Access Token (not password):
+
+1. Go to: https://github.com/settings/tokens
+2. Click "Generate new token (classic)"
+3. Select "repo" checkbox
+4. Click "Generate token"
+5. Copy the token
+
+When pushing:
+- Username: rajvendrasingh
+- Password: [Paste the token]
+
+
+========================================
+Success Check
+========================================
+
+After upload, visit:
+https://github.com/rajvendrasingh/up-exam-mantra
+
+You should see all your files!
+
+
+========================================
