@@ -1,0 +1,52 @@
+[
+  {
+    "q": "What is the capital of India?",
+    "options": ["Mumbai", "Delhi", "Kolkata", "Chennai", "Bangalore"],
+    "answer": 1
+  },
+  {
+    "q": "Who is known as the Father of the Nation in India?",
+    "options": ["Jawaharlal Nehru", "Mahatma Gandhi", "Sardar Patel", "Subhas Chandra Bose", "Bhagat Singh"],
+    "answer": 1
+  },
+  {
+    "q": "What is 15 + 27?",
+    "options": ["40", "41", "42", "43", "44"],
+    "answer": 2
+  },
+  {
+    "q": "Which planet is known as the Red Planet?",
+    "options": ["Venus", "Jupiter", "Mars", "Saturn", "Mercury"],
+    "answer": 2
+  },
+  {
+    "q": "What is the largest ocean on Earth?",
+    "options": ["Atlantic Ocean", "Indian Ocean", "Arctic Ocean", "Pacific Ocean", "Southern Ocean"],
+    "answer": 3
+  },
+  {
+    "q": "Who wrote 'Romeo and Juliet'?",
+    "options": ["Charles Dickens", "William Shakespeare", "Jane Austen", "Mark Twain", "Leo Tolstoy"],
+    "answer": 1
+  },
+  {
+    "q": "What is the chemical symbol for Gold?",
+    "options": ["Go", "Gd", "Au", "Ag", "Gl"],
+    "answer": 2
+  },
+  {
+    "q": "How many continents are there?",
+    "options": ["5", "6", "7", "8", "9"],
+    "answer": 2
+  },
+  {
+    "q": "What is the square root of 144?",
+    "options": ["10", "11", "12", "13", "14"],
+    "answer": 2
+  },
+  {
+    "q": "Which gas do plants absorb from the atmosphere?",
+    "options": ["Oxygen", "Carbon Dioxide", "Nitrogen", "Hydrogen", "Helium"],
+    "answer": 1
+  }
+]

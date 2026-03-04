@@ -1,0 +1,67 @@
+// This file contains common JSON errors that the AI can auto-fix
+
+// Example 1: Missing brackets (AI will add them)
+{
+  "q": "What is 2+2?",
+  "options": ["2", "3", "4", "5", "6"],
+  "answer": 2
+}
+
+// Example 2: Single quotes instead of double quotes (AI will fix)
+[
+  {
+    'q': 'What is the capital of France?',
+    'options': ['London', 'Paris', 'Berlin', 'Madrid', 'Rome'],
+    'answer': 1
+  }
+]
+
+// Example 3: Missing commas (AI will add them)
+[
+  {
+    "q": "Question 1?"
+    "options": ["A" "B" "C" "D" "E"]
+    "answer": 0
+  }
+]
+
+// Example 4: Wrong field names (AI will correct)
+[
+  {
+    "question": "What is 5+5?",
+    "choices": ["8", "9", "10", "11"],
+    "correct": 2
+  }
+]
+
+// Example 5: Missing options (AI will add default options)
+[
+  {
+    "q": "Sample question?",
+    "options": ["A", "B"],
+    "answer": 0
+  }
+]
+
+// Example 6: Trailing commas (AI will remove)
+[
+  {
+    "q": "Question?",
+    "options": ["A", "B", "C", "D", "E",],
+    "answer": 0,
+  },
+]
+
+// CORRECT FORMAT (No errors):
+[
+  {
+    "q": "What is the capital of India?",
+    "options": ["Mumbai", "Delhi", "Kolkata", "Chennai", "Bangalore"],
+    "answer": 1
+  },
+  {
+    "q": "What is 2 + 2?",
+    "options": ["2", "3", "4", "5", "6"],
+    "answer": 2
+  }
+]
