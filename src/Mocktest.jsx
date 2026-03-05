@@ -4,6 +4,9 @@ import { TestSeriesContext } from "./TestSeriesContext";
 export default function Mocktest() {
   const { testSeries, addTestResult } = useContext(TestSeriesContext);
   
+  // Filter only active test series for users
+  const activeTestSeries = testSeries.filter(series => series.status === "active");
+  
   // Navigation states
   const [mode, setMode] = useState("select"); // "select", "testseries", "section", "test"
   const [selectedSeriesIdx, setSelectedSeriesIdx] = useState(null);
@@ -11,8 +14,8 @@ export default function Mocktest() {
   const [selectedTestIdx, setSelectedTestIdx] = useState(null);
   const [showInstructions, setShowInstructions] = useState(false);
   
-  // Get current items
-  const currentSeries = selectedSeriesIdx !== null ? testSeries[selectedSeriesIdx] : null;
+  // Get current items from ACTIVE test series
+  const currentSeries = selectedSeriesIdx !== null ? activeTestSeries[selectedSeriesIdx] : null;
   const currentSection = currentSeries && selectedSectionIdx !== null ? currentSeries.sections?.[selectedSectionIdx] : null;
   const currentTest = currentSection && selectedTestIdx !== null ? currentSection.tests?.[selectedTestIdx] : null;
   const questions = currentTest?.questions || [];
@@ -27,6 +30,15 @@ export default function Mocktest() {
   const [testCompleted, setTestCompleted] = useState(false);
   const [showReview, setShowReview] = useState(false);
   const [flagged, setFlagged] = useState([]);
+  
+  // Language translator states
+  const [translatedQuestions, setTranslatedQuestions] = useState({});
+  const [translatedOptions, setTranslatedOptions] = useState({});
+  const [translating, setTranslating] = useState(false);
+  const [currentLanguage, setCurrentLanguage] = useState("original"); // "original", "hindi", "english"
+  
+  // Mobile menu state
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
 
   // Reset when test changes
   useEffect(() => {
@@ -99,18 +111,124 @@ export default function Mocktest() {
     setFlagged(updated);
   };
 
+  // Translation function using Google Translate API
+  const translateText = async (text, targetLang) => {
+    try {
+      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`;
+      const response = await fetch(url);
+      const data = await response.json();
+      return data[0][0][0];
+    } catch (error) {
+      console.error("Translation error:", error);
+      return text; // Return original if translation fails
+    }
+  };
+
+  // Translate current question
+  const handleTranslate = async (targetLang) => {
+    if (translating) return;
+    
+    setTranslating(true);
+    const questionId = questions[current].id;
+    
+    try {
+      // Check if already translated
+      if (translatedQuestions[questionId]?.[targetLang]) {
+        setCurrentLanguage(targetLang);
+        setTranslating(false);
+        return;
+      }
+
+      // Translate question
+      const translatedQuestion = await translateText(questions[current].question, targetLang);
+      
+      // Translate all options
+      const translatedOpts = await Promise.all(
+        questions[current].options.map(opt => translateText(opt, targetLang))
+      );
+
+      // Store translations
+      setTranslatedQuestions(prev => ({
+        ...prev,
+        [questionId]: {
+          ...prev[questionId],
+          [targetLang]: translatedQuestion
+        }
+      }));
+
+      setTranslatedOptions(prev => ({
+        ...prev,
+        [questionId]: {
+          ...prev[questionId],
+          [targetLang]: translatedOpts
+        }
+      }));
+
+      setCurrentLanguage(targetLang);
+    } catch (error) {
+      console.error("Translation failed:", error);
+      alert("Translation failed. Please try again.");
+    } finally {
+      setTranslating(false);
+    }
+  };
+
+  // Get displayed text based on current language
+  const getDisplayedQuestion = () => {
+    if (currentLanguage === "original") return questions[current].question;
+    const questionId = questions[current].id;
+    return translatedQuestions[questionId]?.[currentLanguage] || questions[current].question;
+  };
+
+  const getDisplayedOptions = () => {
+    if (currentLanguage === "original") return questions[current].options;
+    const questionId = questions[current].id;
+    return translatedOptions[questionId]?.[currentLanguage] || questions[current].options;
+  };
+
   const handleFinishTest = () => {
+    // Calculate final score properly
+    let finalScore = 0;
+    let correctCount = 0;
+    let wrongCount = 0;
+    let unattemptedCount = 0;
+    
+    questions.forEach((question, idx) => {
+      if (selected[idx] === null || selected[idx] === undefined) {
+        // Unattempted
+        unattemptedCount++;
+      } else if (selected[idx] === question.answer) {
+        // Correct answer
+        correctCount++;
+        finalScore += 1; // +1 for correct
+      } else {
+        // Wrong answer
+        wrongCount++;
+        finalScore -= 0.25; // -0.25 for wrong
+      }
+    });
+    
     setTestCompleted(true);
+    
+    // Clean userAnswers - replace null/undefined with -1
+    const cleanUserAnswers = selected.map(answer => answer === null || answer === undefined ? -1 : answer);
+    
     const testResult = {
       seriesName: currentTest.title,
-      score: score,
+      testTitle: currentTest.title,
+      score: finalScore,
       totalQuestions: questions.length,
-      attempted: selected.filter(s => s !== null).length,
-      correct: selected.filter((s, i) => s === questions[i].answer).length,
-      wrong: selected.filter((s, i) => s !== null && s !== questions[i].answer).length,
-      unattempted: selected.filter(s => s === null).length,
+      totalMarks: questions.length,
+      attempted: correctCount + wrongCount,
+      correct: correctCount,
+      wrong: wrongCount,
+      unattempted: unattemptedCount,
+      percentage: ((correctCount / questions.length) * 100),
+      userAnswers: cleanUserAnswers,
       date: new Date().toISOString()
     };
+    
+    console.log("Saving test result:", testResult);
     addTestResult(testResult);
   };
 
@@ -160,7 +278,7 @@ export default function Mocktest() {
               Choose Test Series
             </h3>
             
-            {testSeries.length === 0 ? (
+            {activeTestSeries.length === 0 ? (
               <div style={{
                 textAlign: "center",
                 padding: "60px 20px",
@@ -170,14 +288,14 @@ export default function Mocktest() {
               }}>
                 <div style={{ fontSize: "4rem", marginBottom: "20px" }}>📚</div>
                 <div style={{ fontSize: "1.3rem", fontWeight: "600", marginBottom: "10px" }}>
-                  No test series available yet
+                  No active test series available yet
                 </div>
                 <div style={{ fontSize: "1rem" }}>
-                  Admin needs to create test series first
+                  Please wait for admin to activate test series
                 </div>
               </div>
             ) : (
-              testSeries.map((series, idx) => (
+              activeTestSeries.map((series, idx) => (
                 <div
                   key={series.id}
                   onClick={() => {
@@ -328,72 +446,84 @@ export default function Mocktest() {
               Select Test from: {currentSection.title}
             </h3>
             
-            {(!currentSection.tests || currentSection.tests.length === 0) ? (
-              <div style={{
-                textAlign: "center",
-                padding: "60px 20px",
-                color: "#64748b",
-                background: "#f8fafc",
-                borderRadius: "15px"
-              }}>
-                <div style={{ fontSize: "4rem", marginBottom: "20px" }}>📝</div>
-                <div style={{ fontSize: "1.3rem", fontWeight: "600", marginBottom: "10px" }}>
-                  No tests available
-                </div>
-                <div style={{ fontSize: "1rem" }}>
-                  Admin needs to add tests to this section
-                </div>
-              </div>
-            ) : (
-              currentSection.tests.map((test, idx) => (
-                <div
-                  key={test.id}
-                  onClick={() => {
-                    setSelectedTestIdx(idx);
-                    if (test.questions && test.questions.length > 0) {
-                      setShowInstructions(true);
-                    } else {
-                      alert("This test has no questions yet. Please ask admin to add questions.");
-                    }
-                  }}
-                  style={{
-                    padding: "25px",
-                    marginBottom: "15px",
-                    background: selectedTestIdx === idx ? "linear-gradient(135deg, #10b981 0%, #059669 100%)" : "#f8fafc",
-                    color: selectedTestIdx === idx ? "#fff" : "#1e293b",
-                    borderRadius: "15px",
-                    cursor: "pointer",
-                    border: selectedTestIdx === idx ? "none" : "2px solid #e2e8f0",
-                    transition: "all 0.3s"
-                  }}
-                >
-                  <div style={{ 
-                    display: "flex", 
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    marginBottom: "10px"
+            {(() => {
+              // Filter only active tests
+              const activeTests = currentSection.tests?.filter(test => test.status === "active") || [];
+              
+              if (activeTests.length === 0) {
+                return (
+                  <div style={{
+                    textAlign: "center",
+                    padding: "60px 20px",
+                    color: "#64748b",
+                    background: "#f8fafc",
+                    borderRadius: "15px"
                   }}>
-                    <h3 style={{ margin: 0, fontSize: "1.3rem" }}>📝 {test.title}</h3>
-                    <span style={{
-                      background: selectedTestIdx === idx ? "rgba(255,255,255,0.2)" : test.status === "active" ? "#10b981" : "#f59e0b",
-                      color: "#fff",
-                      padding: "5px 15px",
-                      borderRadius: "20px",
-                      fontSize: "0.85rem",
-                      fontWeight: "600"
+                    <div style={{ fontSize: "4rem", marginBottom: "20px" }}>📝</div>
+                    <div style={{ fontSize: "1.3rem", fontWeight: "600", marginBottom: "10px" }}>
+                      No active tests available
+                    </div>
+                    <div style={{ fontSize: "1rem" }}>
+                      Please wait for admin to activate tests
+                    </div>
+                  </div>
+                );
+              }
+              
+              return activeTests.map((test, idx) => {
+                // Find original index in full tests array for selection
+                const originalIdx = currentSection.tests.findIndex(t => t.id === test.id);
+                
+                return (
+                  <div
+                    key={test.id}
+                    onClick={() => {
+                      setSelectedTestIdx(originalIdx);
+                      if (test.questions && test.questions.length > 0) {
+                        setShowInstructions(true);
+                      } else {
+                        alert("This test has no questions yet. Please ask admin to add questions.");
+                      }
+                    }}
+                    style={{
+                      padding: "25px",
+                      marginBottom: "15px",
+                      background: selectedTestIdx === originalIdx ? "linear-gradient(135deg, #10b981 0%, #059669 100%)" : "#f8fafc",
+                      color: selectedTestIdx === originalIdx ? "#fff" : "#1e293b",
+                      borderRadius: "15px",
+                      cursor: "pointer",
+                      border: selectedTestIdx === originalIdx ? "none" : "2px solid #e2e8f0",
+                      transition: "all 0.3s"
+                    }}
+                  >
+                    <div style={{ 
+                      display: "flex", 
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      marginBottom: "10px"
                     }}>
-                      {test.status === "active" ? "✅ Active" : "📝 Draft"}
-                    </span>
+                      <h3 style={{ margin: 0, fontSize: "1.3rem" }}>📝 {test.title}</h3>
+                      <span style={{
+                        background: selectedTestIdx === originalIdx ? "rgba(255,255,255,0.2)" : "#10b981",
+                        color: "#fff",
+                        padding: "5px 15px",
+                        borderRadius: "20px",
+                        fontSize: "0.85rem",
+                        fontWeight: "600"
+                      }}>
+                        ✅ Active
+                      </span>
+                    </div>
+                    <div style={{ fontSize: "0.95rem", opacity: 0.9 }}>
+                      ❓ {test.questions?.length || 0} Questions | 
+                      ⏱️ {test.duration || 60} min | 
+                      ✅ +{test.marksPerQuestion || 1} | 
+                      ❌ -{test.negativeMarking || 0.25}
+                    </div>
                   </div>
-                  <div style={{ fontSize: "0.95rem", opacity: 0.9 }}>
-                    ❓ {test.questions?.length || 0} Questions | 
-                    ⏱️ {test.duration || 60} min | 
-                    ✅ +{test.marksPerQuestion || 1} | 
-                    ❌ -{test.negativeMarking || 0.25}
-                  </div>
-                </div>
-              ))
-            )}
+                );
+              });
+            })()}
           </div>
         )}
 
@@ -572,17 +702,81 @@ export default function Mocktest() {
 
   // TEST COMPLETED SCREEN
   if (testCompleted && !showReview) {
-    const percentage = ((score / questions.length) * 100).toFixed(1);
+    // Recalculate score for display
+    let finalScore = 0;
+    let correctCount = 0;
+    let wrongCount = 0;
+    
+    questions.forEach((question, idx) => {
+      if (selected[idx] === null || selected[idx] === undefined) {
+        // Unattempted - no marks
+      } else if (selected[idx] === question.answer) {
+        correctCount++;
+        finalScore += 1;
+      } else {
+        wrongCount++;
+        finalScore -= 0.25;
+      }
+    });
+    
+    const percentage = ((correctCount / questions.length) * 100).toFixed(1);
+    
     return (
       <div style={{
-        maxWidth: "700px",
-        margin: "40px auto",
-        padding: "40px",
-        background: "#fff",
-        borderRadius: "20px",
-        boxShadow: "0 10px 40px rgba(0,0,0,0.1)",
-        textAlign: "center"
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+        overflow: "auto",
+        zIndex: 10000,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "20px"
       }}>
+        {/* Back Button */}
+        <button
+          onClick={() => {
+            setTestStarted(false);
+            setTestCompleted(false);
+            setMode("select");
+            setSelectedSeriesIdx(null);
+            setSelectedSectionIdx(null);
+            setSelectedTestIdx(null);
+          }}
+          style={{
+            position: "fixed",
+            top: "15px",
+            left: "15px",
+            padding: "10px 20px",
+            background: "rgba(255, 255, 255, 0.95)",
+            color: "#1e293b",
+            border: "2px solid #e2e8f0",
+            borderRadius: "10px",
+            fontWeight: "600",
+            cursor: "pointer",
+            boxShadow: "0 4px 15px rgba(0,0,0,0.1)",
+            zIndex: 10001,
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            fontSize: "0.95rem"
+          }}
+        >
+          ← Back
+        </button>
+
+        <div style={{
+          maxWidth: "700px",
+          width: "100%",
+          padding: "40px",
+          background: "#fff",
+          borderRadius: "20px",
+          boxShadow: "0 10px 40px rgba(0,0,0,0.1)",
+          textAlign: "center"
+        }}>
         <div style={{ fontSize: "5rem", marginBottom: "20px" }}>
           {percentage >= 70 ? "🎉" : percentage >= 40 ? "👍" : "📚"}
         </div>
@@ -595,7 +789,7 @@ export default function Mocktest() {
           color: percentage >= 70 ? "#22c55e" : percentage >= 40 ? "#f59e0b" : "#ef4444",
           marginBottom: "30px"
         }}>
-          {score.toFixed(2)} / {questions.length}
+          {finalScore.toFixed(2)} / {questions.length}
         </div>
         <div style={{ fontSize: "1.5rem", color: "#64748b", marginBottom: "40px" }}>
           {percentage}% Score
@@ -609,25 +803,25 @@ export default function Mocktest() {
         }}>
           <div style={{ padding: "20px", background: "#dcfce7", borderRadius: "12px" }}>
             <div style={{ fontSize: "2rem", fontWeight: "bold", color: "#166534" }}>
-              {selected.filter((s, i) => s === questions[i].answer).length}
+              {correctCount}
             </div>
             <div style={{ color: "#166534" }}>Correct</div>
           </div>
           <div style={{ padding: "20px", background: "#fee2e2", borderRadius: "12px" }}>
             <div style={{ fontSize: "2rem", fontWeight: "bold", color: "#991b1b" }}>
-              {selected.filter((s, i) => s !== null && s !== questions[i].answer).length}
+              {wrongCount}
             </div>
             <div style={{ color: "#991b1b" }}>Wrong</div>
           </div>
           <div style={{ padding: "20px", background: "#dbeafe", borderRadius: "12px" }}>
             <div style={{ fontSize: "2rem", fontWeight: "bold", color: "#1e40af" }}>
-              {selected.filter(s => s !== null).length}
+              {correctCount + wrongCount}
             </div>
             <div style={{ color: "#1e40af" }}>Attempted</div>
           </div>
           <div style={{ padding: "20px", background: "#f3f4f6", borderRadius: "12px" }}>
             <div style={{ fontSize: "2rem", fontWeight: "bold", color: "#374151" }}>
-              {selected.filter(s => s === null).length}
+              {questions.length - correctCount - wrongCount}
             </div>
             <div style={{ color: "#374151" }}>Skipped</div>
           </div>
@@ -643,7 +837,6 @@ export default function Mocktest() {
               color: "#fff",
               border: "none",
               borderRadius: "12px",
-              fontSize: "1.1rem",
               fontWeight: "bold",
               cursor: "pointer"
             }}
@@ -652,7 +845,14 @@ export default function Mocktest() {
           </button>
         </div>
         <button
-          onClick={() => window.location.reload()}
+          onClick={() => {
+            setTestStarted(false);
+            setTestCompleted(false);
+            setMode("select");
+            setSelectedSeriesIdx(null);
+            setSelectedSectionIdx(null);
+            setSelectedTestIdx(null);
+          }}
           style={{
             width: "100%",
             padding: "15px",
@@ -668,6 +868,7 @@ export default function Mocktest() {
           Take Another Test
         </button>
       </div>
+      </div>
     );
   }
 
@@ -675,31 +876,53 @@ export default function Mocktest() {
   if (showReview) {
     return (
       <div style={{
-        maxWidth: "1000px",
-        margin: "40px auto",
-        padding: "40px",
-        background: "#fff",
-        borderRadius: "20px",
-        boxShadow: "0 10px 40px rgba(0,0,0,0.1)"
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+        overflow: "auto",
+        zIndex: 10000,
+        padding: "70px 20px 20px 20px"
       }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "30px" }}>
+        {/* Back Button */}
+        <button
+          onClick={() => setShowReview(false)}
+          style={{
+            position: "fixed",
+            top: "15px",
+            left: "15px",
+            padding: "10px 20px",
+            background: "rgba(255, 255, 255, 0.95)",
+            color: "#1e293b",
+            border: "2px solid #e2e8f0",
+            borderRadius: "10px",
+            fontWeight: "600",
+            cursor: "pointer",
+            boxShadow: "0 4px 15px rgba(0,0,0,0.1)",
+            zIndex: 10001,
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            fontSize: "0.95rem"
+          }}
+        >
+          ← Back to Results
+        </button>
+
+        <div style={{
+          maxWidth: "1000px",
+          margin: "0 auto",
+          padding: "40px",
+          background: "#fff",
+          borderRadius: "20px",
+          boxShadow: "0 10px 40px rgba(0,0,0,0.1)"
+        }}>
+        <div style={{ marginBottom: "30px" }}>
           <h2 style={{ color: "#1e293b", fontSize: "2rem", margin: 0 }}>
             📝 Review Answers
           </h2>
-          <button
-            onClick={() => setShowReview(false)}
-            style={{
-              padding: "12px 24px",
-              background: "#667eea",
-              color: "#fff",
-              border: "none",
-              borderRadius: "10px",
-              fontWeight: "600",
-              cursor: "pointer"
-            }}
-          >
-            ← Back to Results
-          </button>
         </div>
 
         {questions.map((q, idx) => (
@@ -793,6 +1016,7 @@ export default function Mocktest() {
           </div>
         ))}
       </div>
+      </div>
     );
   }
 
@@ -836,10 +1060,49 @@ export default function Mocktest() {
 
   return (
     <div style={{
-      minHeight: "100vh",
+      position: "fixed",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
       background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-      padding: "20px"
+      overflow: "auto",
+      zIndex: 10000
     }}>
+      {/* Back Button - Fixed Top Left */}
+      <button
+        onClick={() => {
+          if (window.confirm("Are you sure you want to exit the test? Your progress will be lost.")) {
+            setTestStarted(false);
+            setMode("select");
+            setSelectedSeriesIdx(null);
+            setSelectedSectionIdx(null);
+            setSelectedTestIdx(null);
+          }
+        }}
+        style={{
+          position: "fixed",
+          top: "15px",
+          left: "15px",
+          padding: "10px 20px",
+          background: "rgba(255, 255, 255, 0.95)",
+          color: "#1e293b",
+          border: "2px solid #e2e8f0",
+          borderRadius: "10px",
+          fontWeight: "600",
+          cursor: "pointer",
+          boxShadow: "0 4px 15px rgba(0,0,0,0.1)",
+          zIndex: 10001,
+          display: "flex",
+          alignItems: "center",
+          gap: "8px",
+          fontSize: "0.95rem"
+        }}
+      >
+        ← Back
+      </button>
+
+      <div style={{ padding: "70px 20px 20px 20px" }}>
       <div style={{ maxWidth: "1400px", margin: "0 auto" }}>
         {/* Header */}
         <div style={{
@@ -890,7 +1153,132 @@ export default function Mocktest() {
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: "20px", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: "20px", flexWrap: "wrap", position: "relative" }}>
+          {/* Mobile Hamburger Button */}
+          <button
+            onClick={() => setShowMobileMenu(!showMobileMenu)}
+            style={{
+              position: "fixed",
+              bottom: "20px",
+              right: "20px",
+              width: "60px",
+              height: "60px",
+              borderRadius: "50%",
+              background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+              color: "#fff",
+              border: "none",
+              fontSize: "1.5rem",
+              cursor: "pointer",
+              boxShadow: "0 4px 15px rgba(102, 126, 234, 0.4)",
+              zIndex: 1000,
+              display: "none"
+            }}
+            className="mobile-menu-btn"
+          >
+            ☰
+          </button>
+
+          {/* Mobile Question Navigator Overlay */}
+          {showMobileMenu && (
+            <>
+              <div
+                onClick={() => setShowMobileMenu(false)}
+                style={{
+                  position: "fixed",
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  background: "rgba(0,0,0,0.5)",
+                  zIndex: 1001
+                }}
+              />
+              <div style={{
+                position: "fixed",
+                bottom: 0,
+                left: 0,
+                right: 0,
+                background: "#fff",
+                borderRadius: "20px 20px 0 0",
+                padding: "20px",
+                boxShadow: "0 -4px 20px rgba(0,0,0,0.2)",
+                zIndex: 1002,
+                maxHeight: "70vh",
+                overflowY: "auto"
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+                  <h3 style={{ margin: 0, color: "#1e293b", fontSize: "1.2rem" }}>
+                    Question Navigator
+                  </h3>
+                  <button
+                    onClick={() => setShowMobileMenu(false)}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      fontSize: "1.5rem",
+                      cursor: "pointer",
+                      color: "#64748b"
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+                
+                <div style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(5, 1fr)",
+                  gap: "8px",
+                  marginBottom: "20px"
+                }}>
+                  {questions.map((_, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => {
+                        handleJump(idx);
+                        setShowMobileMenu(false);
+                      }}
+                      style={{
+                        padding: "10px",
+                        background: getStatusColor(getQuestionStatus(idx)),
+                        color: "#fff",
+                        border: current === idx ? "3px solid #1e293b" : "none",
+                        borderRadius: "8px",
+                        fontWeight: "700",
+                        cursor: "pointer",
+                        fontSize: "0.95rem"
+                      }}
+                    >
+                      {idx + 1}
+                    </button>
+                  ))}
+                </div>
+
+                <div style={{ fontSize: "0.85rem" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
+                    <div style={{ width: "16px", height: "16px", background: "#22c55e", borderRadius: "4px" }}></div>
+                    <span>Correct</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
+                    <div style={{ width: "16px", height: "16px", background: "#ef4444", borderRadius: "4px" }}></div>
+                    <span>Wrong</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
+                    <div style={{ width: "16px", height: "16px", background: "#3b82f6", borderRadius: "4px" }}></div>
+                    <span>Answered</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
+                    <div style={{ width: "16px", height: "16px", background: "#f59e0b", borderRadius: "4px" }}></div>
+                    <span>Flagged</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                    <div style={{ width: "16px", height: "16px", background: "#e5e7eb", borderRadius: "4px" }}></div>
+                    <span>Unanswered</span>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
           {/* Question Panel */}
           <div style={{
             flex: "1 1 600px",
@@ -900,11 +1288,72 @@ export default function Mocktest() {
             boxShadow: "0 4px 15px rgba(0,0,0,0.1)"
           }}>
             <div style={{ marginBottom: "25px" }}>
-              <div style={{ fontWeight: "700", color: "#667eea", marginBottom: "15px", fontSize: "1.1rem" }}>
-                Question {current + 1}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "15px" }}>
+                <div style={{ fontWeight: "700", color: "#667eea", fontSize: "1.1rem" }}>
+                  Question {current + 1}
+                </div>
+                
+                {/* Language Translator Buttons */}
+                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                  <span style={{ fontSize: "0.85rem", color: "#64748b", marginRight: "5px" }}>
+                    Translate:
+                  </span>
+                  <button
+                    onClick={() => setCurrentLanguage("original")}
+                    disabled={translating}
+                    style={{
+                      padding: "6px 12px",
+                      background: currentLanguage === "original" ? "#667eea" : "#f1f5f9",
+                      color: currentLanguage === "original" ? "#fff" : "#64748b",
+                      border: "none",
+                      borderRadius: "6px",
+                      fontSize: "0.85rem",
+                      fontWeight: "600",
+                      cursor: translating ? "not-allowed" : "pointer",
+                      opacity: translating ? 0.6 : 1
+                    }}
+                  >
+                    Original
+                  </button>
+                  <button
+                    onClick={() => handleTranslate("hi")}
+                    disabled={translating}
+                    style={{
+                      padding: "6px 12px",
+                      background: currentLanguage === "hi" ? "#10b981" : "#f1f5f9",
+                      color: currentLanguage === "hi" ? "#fff" : "#64748b",
+                      border: "none",
+                      borderRadius: "6px",
+                      fontSize: "0.85rem",
+                      fontWeight: "600",
+                      cursor: translating ? "not-allowed" : "pointer",
+                      opacity: translating ? 0.6 : 1
+                    }}
+                  >
+                    {translating && currentLanguage !== "hi" && currentLanguage !== "en" ? "..." : "हिंदी"}
+                  </button>
+                  <button
+                    onClick={() => handleTranslate("en")}
+                    disabled={translating}
+                    style={{
+                      padding: "6px 12px",
+                      background: currentLanguage === "en" ? "#3b82f6" : "#f1f5f9",
+                      color: currentLanguage === "en" ? "#fff" : "#64748b",
+                      border: "none",
+                      borderRadius: "6px",
+                      fontSize: "0.85rem",
+                      fontWeight: "600",
+                      cursor: translating ? "not-allowed" : "pointer",
+                      opacity: translating ? 0.6 : 1
+                    }}
+                  >
+                    {translating && currentLanguage !== "en" && currentLanguage !== "hi" ? "..." : "English"}
+                  </button>
+                </div>
               </div>
+              
               <div style={{ fontSize: "1.2rem", fontWeight: "600", color: "#1e293b", lineHeight: "1.6" }}>
-                {questions[current].question}
+                {getDisplayedQuestion()}
               </div>
               {questions[current].image && (
                 <div style={{ marginTop: "15px" }}>
@@ -924,7 +1373,7 @@ export default function Mocktest() {
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "30px" }}>
-              {questions[current].options.map((option, idx) => (
+              {getDisplayedOptions().map((option, idx) => (
                 <div
                   key={idx}
                   onClick={() => handleOptionClick(idx)}
@@ -1039,8 +1488,8 @@ export default function Mocktest() {
             </div>
           </div>
 
-          {/* Question Navigator */}
-          <div style={{
+          {/* Question Navigator - Desktop Only */}
+          <div className="question-navigator-desktop" style={{
             flex: "0 0 300px",
             background: "#fff",
             borderRadius: "15px",
@@ -1103,6 +1552,7 @@ export default function Mocktest() {
           </div>
         </div>
       </div>
+    </div>
     </div>
   );
 }

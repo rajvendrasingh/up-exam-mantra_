@@ -5,7 +5,8 @@ import {
   getDocs, 
   addDoc, 
   updateDoc, 
-  deleteDoc, 
+  deleteDoc,
+  setDoc,
   query, 
   where, 
   orderBy,
@@ -33,19 +34,20 @@ export const createTestSeries = async (seriesData) => {
 
 export const getAllTestSeries = async (includeInactive = false) => {
   try {
-    let q = collection(db, 'testSeries');
+    const q = collection(db, 'testSeries');
+    const snapshot = await getDocs(q);
+    const allSeries = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     
+    // Filter by status if needed
     if (!includeInactive) {
-      q = query(q, where('status', '==', 'active'));
+      return allSeries.filter(series => series.status === 'active');
     }
     
-    q = query(q, orderBy('order', 'asc'), orderBy('createdAt', 'desc'));
-    
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    return allSeries;
   } catch (error) {
     console.error('Error getting test series:', error);
-    throw error;
+    // Return empty array instead of throwing
+    return [];
   }
 };
 
@@ -67,11 +69,18 @@ export const getTestSeriesById = async (seriesId) => {
 export const updateTestSeries = async (seriesId, updates) => {
   try {
     const docRef = doc(db, 'testSeries', seriesId);
+    
+    // Remove undefined fields and timestamps
+    const cleanUpdates = { ...updates };
+    delete cleanUpdates.id;
+    delete cleanUpdates.createdAt;
+    
     await updateDoc(docRef, {
-      ...updates,
+      ...cleanUpdates,
       updatedAt: serverTimestamp()
     });
-    return { id: seriesId, ...updates };
+    
+    return { id: seriesId, ...cleanUpdates };
   } catch (error) {
     console.error('Error updating test series:', error);
     throw error;
@@ -80,36 +89,7 @@ export const updateTestSeries = async (seriesId, updates) => {
 
 export const deleteTestSeries = async (seriesId) => {
   try {
-    // Delete all subcollections first (sections, tests, questions)
-    const sectionsRef = collection(db, 'testSeries', seriesId, 'sections');
-    const sectionsSnap = await getDocs(sectionsRef);
-    
-    const batch = writeBatch(db);
-    
-    for (const sectionDoc of sectionsSnap.docs) {
-      // Delete tests in this section
-      const testsRef = collection(db, 'testSeries', seriesId, 'sections', sectionDoc.id, 'tests');
-      const testsSnap = await getDocs(testsRef);
-      
-      for (const testDoc of testsSnap.docs) {
-        // Delete questions in this test
-        const questionsRef = collection(db, 'testSeries', seriesId, 'sections', sectionDoc.id, 'tests', testDoc.id, 'questions');
-        const questionsSnap = await getDocs(questionsRef);
-        
-        questionsSnap.docs.forEach(qDoc => {
-          batch.delete(qDoc.ref);
-        });
-        
-        batch.delete(testDoc.ref);
-      }
-      
-      batch.delete(sectionDoc.ref);
-    }
-    
-    // Delete the test series itself
-    batch.delete(doc(db, 'testSeries', seriesId));
-    
-    await batch.commit();
+    await deleteDoc(doc(db, 'testSeries', seriesId));
     return true;
   } catch (error) {
     console.error('Error deleting test series:', error);
@@ -358,13 +338,17 @@ export const deleteQuestion = async (seriesId, sectionId, testId, questionId) =>
 
 export const createTestAttempt = async (attemptData) => {
   try {
+    // Clean the data - remove undefined values and convert to plain objects
+    const cleanData = JSON.parse(JSON.stringify(attemptData));
+    
     const docRef = await addDoc(collection(db, 'testAttempts'), {
-      ...attemptData,
-      startedAt: serverTimestamp()
+      ...cleanData,
+      createdAt: serverTimestamp()
     });
-    return { id: docRef.id, ...attemptData };
+    return { id: docRef.id, ...cleanData };
   } catch (error) {
     console.error('Error creating test attempt:', error);
+    console.error('Attempt data:', attemptData);
     throw error;
   }
 };
@@ -385,16 +369,28 @@ export const updateTestAttempt = async (attemptId, updates) => {
 
 export const getUserTestAttempts = async (userId) => {
   try {
+    console.log("📥 Fetching test attempts for user:", userId);
+    
     const q = query(
       collection(db, 'testAttempts'),
-      where('userId', '==', userId),
-      orderBy('completedAt', 'desc')
+      where('userId', '==', userId)
     );
     const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const attempts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    
+    // Sort by date in JavaScript instead of Firestore
+    attempts.sort((a, b) => {
+      const dateA = new Date(a.completedAt || a.date);
+      const dateB = new Date(b.completedAt || b.date);
+      return dateB - dateA; // Descending order (newest first)
+    });
+    
+    console.log("✅ Test attempts fetched:", attempts.length);
+    return attempts;
   } catch (error) {
-    console.error('Error getting user test attempts:', error);
-    throw error;
+    console.error('❌ Error getting user test attempts:', error);
+    // Return empty array instead of throwing
+    return [];
   }
 };
 
@@ -418,7 +414,8 @@ export const getUserProfile = async (userId) => {
 export const updateUserProfile = async (userId, updates) => {
   try {
     const docRef = doc(db, 'users', userId);
-    await updateDoc(docRef, updates);
+    // Use setDoc with merge to create document if it doesn't exist
+    await setDoc(docRef, updates, { merge: true });
     return { id: userId, ...updates };
   } catch (error) {
     console.error('Error updating user profile:', error);
@@ -437,5 +434,23 @@ export const createUserProfile = async (userId, userData) => {
   } catch (error) {
     console.error('Error creating user profile:', error);
     throw error;
+  }
+};
+
+// ==================== LEADERBOARD ====================
+
+export const getAllUsers = async () => {
+  try {
+    console.log("📥 Fetching all users for leaderboard...");
+    
+    const q = collection(db, 'users');
+    const snapshot = await getDocs(q);
+    const users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    
+    console.log("✅ All users fetched:", users.length);
+    return users;
+  } catch (error) {
+    console.error('❌ Error getting all users:', error);
+    return [];
   }
 };

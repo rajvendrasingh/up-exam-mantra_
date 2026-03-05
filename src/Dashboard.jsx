@@ -3,16 +3,21 @@ import { TestSeriesContext } from "./TestSeriesContext";
 import { auth } from "./firebase";
 
 export default function Dashboard() {
-  const { testHistory, subjects, testSeries } = useContext(TestSeriesContext);
+  const { testHistory, subjects, testSeries, userProfile } = useContext(TestSeriesContext);
   const user = auth.currentUser;
 
-  // Calculate stats
-  const totalTests = testHistory.length;
-  const totalScore = testHistory.reduce((sum, test) => sum + test.score, 0);
-  const averageScore = totalTests > 0 ? (totalScore / totalTests).toFixed(2) : 0;
-  const bestScore = testHistory.length > 0 
-    ? Math.max(...testHistory.map(t => t.score)).toFixed(2) 
-    : 0;
+  // Calculate stats from userProfile (which is synced with Firebase)
+  const totalTests = userProfile.totalTests || testHistory.length;
+  const averageScore = userProfile.averageScore || 0;
+  const bestScore = userProfile.bestScore || 0;
+  const totalScore = userProfile.totalScore || 0;
+
+  console.log("📊 Dashboard data:", {
+    totalTests,
+    averageScore,
+    bestScore,
+    historyLength: testHistory.length
+  });
 
   return (
     <div style={{
@@ -64,7 +69,7 @@ export default function Dashboard() {
         }}>
           <div style={{ fontSize: "2.5rem", marginBottom: "10px" }}>📈</div>
           <div style={{ fontSize: "2rem", fontWeight: "bold", color: "#10b981" }}>
-            {averageScore}
+            {typeof averageScore === 'number' ? averageScore.toFixed(2) : averageScore}
           </div>
           <div style={{ color: "#64748b", marginTop: "5px" }}>Average Score</div>
         </div>
@@ -77,7 +82,7 @@ export default function Dashboard() {
         }}>
           <div style={{ fontSize: "2.5rem", marginBottom: "10px" }}>🏆</div>
           <div style={{ fontSize: "2rem", fontWeight: "bold", color: "#f59e0b" }}>
-            {bestScore}
+            {typeof bestScore === 'number' ? bestScore.toFixed(2) : bestScore}
           </div>
           <div style={{ color: "#64748b", marginTop: "5px" }}>Best Score</div>
         </div>
@@ -88,11 +93,11 @@ export default function Dashboard() {
           padding: "30px",
           boxShadow: "0 4px 15px rgba(0,0,0,0.08)"
         }}>
-          <div style={{ fontSize: "2.5rem", marginBottom: "10px" }}>📚</div>
+          <div style={{ fontSize: "2.5rem", marginBottom: "10px" }}>💯</div>
           <div style={{ fontSize: "2rem", fontWeight: "bold", color: "#3b82f6" }}>
-            {subjects.length}
+            {typeof totalScore === 'number' ? totalScore.toFixed(2) : totalScore}
           </div>
-          <div style={{ color: "#64748b", marginTop: "5px" }}>Subjects Available</div>
+          <div style={{ color: "#64748b", marginTop: "5px" }}>Total Score</div>
         </div>
       </div>
 

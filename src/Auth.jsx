@@ -4,7 +4,7 @@ import {
   signInWithEmailAndPassword,
   sendPasswordResetEmail
 } from "firebase/auth";
-import { doc, setDoc } from "firebase/firestore";
+import { doc, setDoc, getDoc } from "firebase/firestore";
 import { auth, db } from "./firebase";
 
 export default function Auth({ onAuthSuccess, onAdminClick, showAdminLogin, setShowAdminLogin, adminUsername, setAdminUsername, adminPassword, setAdminPassword, handleAdminLogin }) {
@@ -50,9 +50,16 @@ export default function Auth({ onAuthSuccess, onAdminClick, showAdminLogin, setS
         name: name,
         email: email,
         createdAt: new Date().toISOString(),
-        role: "student"
+        lastLogin: new Date().toISOString(),
+        role: "student",
+        totalTests: 0,
+        totalScore: 0,
+        averageScore: 0,
+        bestScore: 0,
+        badges: []
       });
 
+      console.log("✅ User document created in Firestore");
       setSuccess("Account created successfully!");
       setTimeout(() => onAuthSuccess(user), 1000);
     } catch (error) {
@@ -79,6 +86,39 @@ export default function Auth({ onAuthSuccess, onAdminClick, showAdminLogin, setS
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
+      
+      // Check if user document exists, if not create it
+      try {
+        const userDocRef = doc(db, "users", user.uid);
+        const userDoc = await getDoc(userDocRef);
+        
+        if (!userDoc.exists()) {
+          // Create user document if it doesn't exist
+          await setDoc(userDocRef, {
+            uid: user.uid,
+            email: user.email,
+            name: user.displayName || user.email.split('@')[0],
+            createdAt: new Date().toISOString(),
+            lastLogin: new Date().toISOString(),
+            role: "student",
+            totalTests: 0,
+            totalScore: 0,
+            averageScore: 0,
+            bestScore: 0,
+            badges: []
+          });
+          console.log("✅ User document created on login");
+        } else {
+          // Update last login time
+          await setDoc(userDocRef, {
+            lastLogin: new Date().toISOString()
+          }, { merge: true });
+          console.log("✅ Last login updated");
+        }
+      } catch (docError) {
+        console.error("Error checking/creating user document:", docError);
+        // Don't fail login if document creation fails
+      }
       
       setSuccess("Login successful!");
       setTimeout(() => onAuthSuccess(user), 500);

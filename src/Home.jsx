@@ -370,7 +370,7 @@ export default function Home() {
               gridTemplateColumns: "repeat(auto-fill, minmax(350px, 1fr))",
               gap: "30px"
             }}>
-              {testSeries.map((series, idx) => (
+              {testSeries.filter(series => series.status === "active").map((series, idx) => (
                 <div key={series.id} style={{
                   background: "#fff",
                   borderRadius: "25px",

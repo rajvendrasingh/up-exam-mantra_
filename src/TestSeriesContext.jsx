@@ -1,23 +1,19 @@
 import { createContext, useState, useEffect } from "react";
+import { auth } from './firebase';
 import {
-  getAllSubjects,
-  addSubject as addSubjectToFirebase,
-  updateSubject as updateSubjectInFirebase,
-  deleteSubject as deleteSubjectFromFirebase,
   getAllTestSeries,
-  addTestSeries as addTestSeriesToFirebase,
-  updateTestSeries as updateTestSeriesInFirebase,
-  deleteTestSeries as deleteTestSeriesFromFirebase,
-  getUserTestHistory,
-  addTestResult as addTestResultToFirebase,
+  createTestSeries,
+  updateTestSeries,
+  deleteTestSeries,
+  createTestAttempt,
+  getUserTestAttempts,
   getUserProfile,
-  updateUserProfile as updateUserProfileInFirebase
-} from './firebaseService';
+  updateUserProfile
+} from './services/firestoreService';
 
 export const TestSeriesContext = createContext();
 
 export function TestSeriesProvider({ children }) {
-  const [subjects, setSubjects] = useState([]);
   const [testSeries, setTestSeries] = useState([]);
   const [testHistory, setTestHistory] = useState([]);
   const [userProfile, setUserProfile] = useState({
@@ -30,10 +26,13 @@ export function TestSeriesProvider({ children }) {
   });
   const [bookmarkedQuestions, setBookmarkedQuestions] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [useFirebase, setUseFirebase] = useState(false); // Toggle Firebase on/off
   const [notifications, setNotifications] = useState([]);
-  
-  const userId = 'default-user'; // You can implement proper auth later
+  const [currentUser, setCurrentUser] = useState(null);
+
+  // Get current user ID
+  const getUserId = () => {
+    return auth.currentUser?.uid || 'guest-user';
+  };
 
   // Add notification function
   const addNotification = (notification) => {
@@ -65,59 +64,110 @@ export function TestSeriesProvider({ children }) {
     setNotifications([]);
   };
 
-  // Load data from Firebase or localStorage
+  // Listen to auth state
+  useEffect(() => {
+    const unsubscribe = auth.onAuthStateChanged((user) => {
+      setCurrentUser(user);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Load data from Firebase
   useEffect(() => {
     const loadData = async () => {
       try {
-        if (useFirebase) {
-          // Load from Firebase
-          const [subjectsData, testSeriesData, historyData, profileData] = await Promise.all([
-            getAllSubjects(),
-            getAllTestSeries(),
-            getUserTestHistory(userId),
-            getUserProfile(userId)
-          ]);
+        console.log("🔄 Loading data from Firebase...");
+        
+        // Load test series (always load, even for guests)
+        const testSeriesData = await getAllTestSeries(false); // Only active
+        console.log("✅ Firebase data loaded:", { testSeriesCount: testSeriesData.length });
+        setTestSeries(testSeriesData);
+        
+        // Load user-specific data if logged in
+        const userId = getUserId();
+        if (userId !== 'guest-user') {
+          console.log("👤 Loading user data for:", userId);
           
-          setSubjects(subjectsData);
-          setTestSeries(testSeriesData);
-          setTestHistory(historyData);
-          setUserProfile(profileData);
+          try {
+            const [historyData, profileData] = await Promise.all([
+              getUserTestAttempts(userId),
+              getUserProfile(userId)
+            ]);
+            
+            console.log("📊 User data loaded:", {
+              testsCount: historyData.length,
+              profile: profileData
+            });
+            
+            // Set test history
+            setTestHistory(historyData || []);
+            
+            // If profile exists, use it; otherwise use default
+            if (profileData) {
+              setUserProfile(profileData);
+            } else {
+              // Create default profile if doesn't exist
+              const defaultProfile = {
+                name: currentUser?.displayName || currentUser?.email?.split('@')[0] || "Student",
+                totalTests: 0,
+                totalScore: 0,
+                averageScore: 0,
+                bestScore: 0,
+                badges: []
+              };
+              setUserProfile(defaultProfile);
+              
+              // Save to Firebase
+              try {
+                await updateUserProfile(userId, defaultProfile);
+                console.log("✅ Default profile created");
+              } catch (err) {
+                console.error("⚠️ Could not create default profile:", err);
+              }
+            }
+          } catch (userDataError) {
+            console.error("⚠️ Error loading user data:", userDataError);
+            // Set empty defaults
+            setTestHistory([]);
+            setUserProfile({
+              name: currentUser?.displayName || currentUser?.email?.split('@')[0] || "Student",
+              totalTests: 0,
+              totalScore: 0,
+              averageScore: 0,
+              bestScore: 0,
+              badges: []
+            });
+          }
         } else {
-          // Load from localStorage
-          const savedSubjects = localStorage.getItem("subjects");
-          const savedTestSeries = localStorage.getItem("testSeries");
-          const savedHistory = localStorage.getItem("testHistory");
-          const savedProfile = localStorage.getItem("userProfile");
-          const savedBookmarks = localStorage.getItem("bookmarkedQuestions");
-          
-          if (savedSubjects) setSubjects(JSON.parse(savedSubjects));
-          if (savedTestSeries) setTestSeries(JSON.parse(savedTestSeries));
-          if (savedHistory) setTestHistory(JSON.parse(savedHistory));
-          if (savedProfile) setUserProfile(JSON.parse(savedProfile));
-          if (savedBookmarks) setBookmarkedQuestions(JSON.parse(savedBookmarks));
+          console.log("👤 Guest user - using default profile");
         }
+        
+        // Load bookmarks from localStorage
+        const savedBookmarks = localStorage.getItem("bookmarkedQuestions");
+        if (savedBookmarks) {
+          setBookmarkedQuestions(JSON.parse(savedBookmarks));
+        }
+        
       } catch (error) {
-        console.error("Error loading data:", error);
-        // Fallback to localStorage if Firebase fails
-        const savedSubjects = localStorage.getItem("subjects");
-        if (savedSubjects) setSubjects(JSON.parse(savedSubjects));
+        console.error("❌ Error loading data from Firebase:", error);
+        
+        // Fallback to localStorage
+        const savedTestSeries = localStorage.getItem("testSeries");
+        if (savedTestSeries) {
+          console.log("⚠️ Falling back to localStorage");
+          setTestSeries(JSON.parse(savedTestSeries));
+        }
       } finally {
         setLoading(false);
       }
     };
 
     loadData();
-  }, [useFirebase]);
+  }, [currentUser]);
 
-  // Save to localStorage (backup)
+  // Save to localStorage as backup
   useEffect(() => {
-    if (!loading) {
-      localStorage.setItem("subjects", JSON.stringify(subjects));
-    }
-  }, [subjects, loading]);
-
-  useEffect(() => {
-    if (!loading) {
+    if (!loading && testSeries.length > 0) {
       localStorage.setItem("testSeries", JSON.stringify(testSeries));
     }
   }, [testSeries, loading]);
@@ -156,45 +206,64 @@ export function TestSeriesProvider({ children }) {
 
   // Add test result
   const addTestResult = async (result) => {
-    const newResult = { ...result, date: new Date().toISOString() };
-    
-    if (useFirebase) {
-      try {
-        await addTestResultToFirebase(userId, newResult);
-      } catch (error) {
-        console.error("Error adding test result to Firebase:", error);
-      }
-    }
-    
-    const newHistory = [...testHistory, newResult];
-    setTestHistory(newHistory);
-
-    const totalTests = newHistory.length;
-    const totalScore = newHistory.reduce((sum, test) => sum + test.score, 0);
-    const averageScore = totalScore / totalTests;
-    const bestScore = Math.max(...newHistory.map(test => test.score));
-
-    const updatedProfile = {
-      ...userProfile,
-      totalTests,
-      totalScore,
-      averageScore: averageScore.toFixed(2),
-      bestScore
+    const userId = getUserId();
+    const newResult = { 
+      ...result, 
+      userId,
+      completedAt: new Date().toISOString() 
     };
     
-    setUserProfile(updatedProfile);
-    
-    if (useFirebase) {
-      try {
-        await updateUserProfileInFirebase(userId, updatedProfile);
-      } catch (error) {
-        console.error("Error updating profile in Firebase:", error);
+    try {
+      console.log("💾 Saving test result...");
+      
+      // Save to Firebase
+      await createTestAttempt(newResult);
+      console.log("✅ Test result saved to Firebase");
+      
+      // Update local state
+      const newHistory = [...testHistory, newResult];
+      setTestHistory(newHistory);
+
+      // Calculate updated profile stats
+      const totalTests = newHistory.length;
+      const totalScore = newHistory.reduce((sum, test) => sum + test.score, 0);
+      const averageScore = totalScore / totalTests;
+      const bestScore = Math.max(...newHistory.map(test => test.score));
+
+      const updatedProfile = {
+        ...userProfile,
+        name: userProfile.name || currentUser?.displayName || currentUser?.email?.split('@')[0] || "Student",
+        email: currentUser?.email || "",
+        totalTests,
+        totalScore: parseFloat(totalScore.toFixed(2)),
+        averageScore: parseFloat(averageScore.toFixed(2)),
+        bestScore: parseFloat(bestScore.toFixed(2)),
+        lastTestDate: new Date().toISOString()
+      };
+      
+      setUserProfile(updatedProfile);
+      
+      console.log("📊 Updated profile:", updatedProfile);
+      
+      // Save profile to Firebase (don't fail if this fails)
+      if (userId !== 'guest-user') {
+        try {
+          await updateUserProfile(userId, updatedProfile);
+          console.log("✅ User profile updated in Firebase");
+        } catch (profileError) {
+          console.error("⚠️ Profile update failed (non-critical):", profileError);
+          // Don't throw - test result is already saved
+        }
       }
+    } catch (error) {
+      console.error("❌ Error saving test result:", error);
+      alert("Error saving test result: " + error.message);
+      throw error;
     }
   };
 
-  const toggleBookmark = (seriesId, questionIndex) => {
-    const bookmarkKey = `${seriesId}-${questionIndex}`;
+  const toggleBookmark = (seriesId, sectionId, testId, questionId) => {
+    const bookmarkKey = `${seriesId}-${sectionId}-${testId}-${questionId}`;
     setBookmarkedQuestions(prev => {
       if (prev.includes(bookmarkKey)) {
         return prev.filter(key => key !== bookmarkKey);
@@ -203,29 +272,20 @@ export function TestSeriesProvider({ children }) {
     });
   };
 
-  const isBookmarked = (seriesId, questionIndex) => {
-    return bookmarkedQuestions.includes(`${seriesId}-${questionIndex}`);
+  const isBookmarked = (seriesId, sectionId, testId, questionId) => {
+    const bookmarkKey = `${seriesId}-${sectionId}-${testId}-${questionId}`;
+    return bookmarkedQuestions.includes(bookmarkKey);
   };
 
-  // Sync local data to Firebase
-  const syncToFirebase = async () => {
+  // Reload test series from Firebase
+  const reloadTestSeries = async () => {
     try {
       setLoading(true);
-      
-      // Clear Firebase and upload local data
-      for (const subject of subjects) {
-        await addSubjectToFirebase(subject);
-      }
-      
-      for (const series of testSeries) {
-        await addTestSeriesToFirebase(series);
-      }
-      
-      alert("✅ Data synced to Firebase successfully!");
-      setUseFirebase(true);
+      const testSeriesData = await getAllTestSeries(false);
+      setTestSeries(testSeriesData);
+      console.log("Test series reloaded from Firebase");
     } catch (error) {
-      console.error("Error syncing to Firebase:", error);
-      alert("❌ Error syncing to Firebase: " + error.message);
+      console.error("Error reloading test series:", error);
     } finally {
       setLoading(false);
     }
@@ -233,8 +293,6 @@ export function TestSeriesProvider({ children }) {
 
   return (
     <TestSeriesContext.Provider value={{ 
-      subjects,
-      setSubjects,
       testSeries, 
       setTestSeries,
       testHistory,
@@ -245,9 +303,9 @@ export function TestSeriesProvider({ children }) {
       toggleBookmark,
       isBookmarked,
       loading,
-      useFirebase,
-      setUseFirebase,
-      syncToFirebase,
+      currentUser,
+      getUserId,
+      reloadTestSeries,
       notifications,
       addNotification,
       markAsRead,

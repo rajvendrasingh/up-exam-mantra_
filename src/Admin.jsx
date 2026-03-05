@@ -1,8 +1,13 @@
-import { useContext, useState } from "react";
+import { useContext, useState, useEffect } from "react";
 import { TestSeriesContext } from "./TestSeriesContext";
+import { 
+  createTestSeries,
+  updateTestSeries,
+  deleteTestSeries
+} from "./services/firestoreService";
 
 export default function Admin() {
-  const { testSeries, setTestSeries, addNotification } = useContext(TestSeriesContext);
+  const { testSeries, setTestSeries, addNotification, reloadTestSeries } = useContext(TestSeriesContext);
   
   // View States
   const [currentView, setCurrentView] = useState("dashboard");
@@ -85,64 +90,99 @@ export default function Admin() {
     setShowModal(true);
   };
 
-  const handleCreateSeries = () => {
+  const handleCreateSeries = async () => {
     if (!seriesTitle.trim()) {
       alert("Please enter a title");
       return;
     }
 
-    const newSeries = {
-      id: Date.now().toString(),
-      title: seriesTitle,
-      description: seriesDescription,
-      category: seriesCategory,
-      status: seriesStatus,
-      sections: [],
-      createdAt: new Date().toISOString()
-    };
+    try {
+      const newSeries = {
+        title: seriesTitle,
+        description: seriesDescription,
+        category: seriesCategory,
+        status: seriesStatus,
+        sections: [],
+        order: testSeries.length
+      };
 
-    setTestSeries([...testSeries, newSeries]);
-    setShowModal(false);
-    
-    // Add notification
-    addNotification({
-      icon: "🎉",
-      title: "New Test Series Created!",
-      message: `"${seriesTitle}" has been created successfully.`,
-      type: "success"
-    });
-    
-    alert("✅ Test series created successfully!");
+      // Save to Firebase
+      console.log("Creating test series in Firebase...");
+      const createdSeries = await createTestSeries(newSeries);
+      console.log("Test series created:", createdSeries.id);
+
+      // Reload from Firebase to get updated data
+      await reloadTestSeries();
+      
+      setShowModal(false);
+      
+      // Add notification
+      addNotification({
+        icon: "🎉",
+        title: "New Test Series Created!",
+        message: `"${seriesTitle}" has been created successfully.`,
+        type: "success"
+      });
+      
+      alert("✅ Test series created successfully!");
+    } catch (error) {
+      console.error("Error creating test series:", error);
+      alert("❌ Error creating test series: " + error.message);
+    }
   };
 
-  const handleUpdateSeries = () => {
+  const handleUpdateSeries = async () => {
     if (!seriesTitle.trim()) {
       alert("Please enter a title");
       return;
     }
 
-    const updated = [...testSeries];
-    updated[editingIdx] = {
-      ...updated[editingIdx],
-      title: seriesTitle,
-      description: seriesDescription,
-      category: seriesCategory,
-      status: seriesStatus
-    };
+    try {
+      const seriesToUpdate = testSeries[editingIdx];
+      const updates = {
+        title: seriesTitle,
+        description: seriesDescription,
+        category: seriesCategory,
+        status: seriesStatus
+      };
 
-    setTestSeries(updated);
-    setShowModal(false);
-    alert("✅ Test series updated successfully!");
+      // Update in Firebase
+      console.log("Updating test series in Firebase:", seriesToUpdate.id);
+      await updateTestSeries(seriesToUpdate.id, updates);
+      console.log("Test series updated successfully");
+
+      // Reload from Firebase
+      await reloadTestSeries();
+      
+      setShowModal(false);
+      alert("✅ Test series updated successfully!");
+    } catch (error) {
+      console.error("Error updating test series:", error);
+      alert("❌ Error updating test series: " + error.message);
+    }
   };
 
-  const handleDeleteSeries = (idx) => {
+  const handleDeleteSeries = async (idx) => {
     if (!window.confirm("Are you sure? This will delete all sections, tests, and questions!")) {
       return;
     }
 
-    const updated = testSeries.filter((_, i) => i !== idx);
-    setTestSeries(updated);
-    alert("✅ Test series deleted successfully!");
+    try {
+      const seriesToDelete = testSeries[idx];
+      
+      // Delete from Firebase
+      console.log("Deleting test series from Firebase:", seriesToDelete.id);
+      await deleteTestSeries(seriesToDelete.id);
+      console.log("Test series deleted successfully");
+
+      // Reload from Firebase
+      await reloadTestSeries();
+      
+      alert("✅ Test series deleted successfully!");
+    } catch (error) {
+      console.error("Error deleting test series:", error);
+      alert("❌ Error deleting test series: " + error.message);
+    }
   };
 
   // ==================== SECTION FUNCTIONS ====================
@@ -164,54 +204,86 @@ export default function Admin() {
     setShowModal(true);
   };
 
-  const handleCreateSection = () => {
+  const handleCreateSection = async () => {
     if (!sectionTitle.trim()) {
       alert("Please enter a section title");
       return;
     }
 
-    const newSection = {
-      id: Date.now().toString(),
-      title: sectionTitle,
-      description: sectionDescription,
-      tests: [],
-      createdAt: new Date().toISOString()
-    };
+    try {
+      const newSection = {
+        id: Date.now().toString(),
+        title: sectionTitle,
+        description: sectionDescription,
+        tests: [],
+        createdAt: new Date().toISOString()
+      };
 
-    const updated = [...testSeries];
-    updated[selectedSeriesIdx].sections = [...(updated[selectedSeriesIdx].sections || []), newSection];
-    setTestSeries(updated);
-    setShowModal(false);
-    alert("✅ Section created successfully!");
+      const updated = [...testSeries];
+      updated[selectedSeriesIdx].sections = [...(updated[selectedSeriesIdx].sections || []), newSection];
+      
+      // Update in Firebase
+      await updateTestSeries(updated[selectedSeriesIdx].id, updated[selectedSeriesIdx]);
+      
+      // Reload from Firebase
+      await reloadTestSeries();
+      
+      setShowModal(false);
+      alert("✅ Section created successfully!");
+    } catch (error) {
+      console.error("Error creating section:", error);
+      alert("❌ Error creating section: " + error.message);
+    }
   };
 
-  const handleUpdateSection = () => {
+  const handleUpdateSection = async () => {
     if (!sectionTitle.trim()) {
       alert("Please enter a section title");
       return;
     }
 
-    const updated = [...testSeries];
-    updated[selectedSeriesIdx].sections[editingIdx] = {
-      ...updated[selectedSeriesIdx].sections[editingIdx],
-      title: sectionTitle,
-      description: sectionDescription
-    };
+    try {
+      const updated = [...testSeries];
+      updated[selectedSeriesIdx].sections[editingIdx] = {
+        ...updated[selectedSeriesIdx].sections[editingIdx],
+        title: sectionTitle,
+        description: sectionDescription
+      };
 
-    setTestSeries(updated);
-    setShowModal(false);
-    alert("✅ Section updated successfully!");
+      // Update in Firebase
+      await updateTestSeries(updated[selectedSeriesIdx].id, updated[selectedSeriesIdx]);
+      
+      // Reload from Firebase
+      await reloadTestSeries();
+      
+      setShowModal(false);
+      alert("✅ Section updated successfully!");
+    } catch (error) {
+      console.error("Error updating section:", error);
+      alert("❌ Error updating section: " + error.message);
+    }
   };
 
-  const handleDeleteSection = (idx) => {
+  const handleDeleteSection = async (idx) => {
     if (!window.confirm("Are you sure? This will delete all tests and questions in this section!")) {
       return;
     }
 
-    const updated = [...testSeries];
-    updated[selectedSeriesIdx].sections = updated[selectedSeriesIdx].sections.filter((_, i) => i !== idx);
-    setTestSeries(updated);
-    alert("✅ Section deleted successfully!");
+    try {
+      const updated = [...testSeries];
+      updated[selectedSeriesIdx].sections = updated[selectedSeriesIdx].sections.filter((_, i) => i !== idx);
+      
+      // Update in Firebase
+      await updateTestSeries(updated[selectedSeriesIdx].id, updated[selectedSeriesIdx]);
+      
+      // Reload from Firebase
+      await reloadTestSeries();
+      
+      alert("✅ Section deleted successfully!");
+    } catch (error) {
+      console.error("Error deleting section:", error);
+      alert("❌ Error deleting section: " + error.message);
+    }
   };
 
   // ==================== TEST FUNCTIONS ====================
@@ -241,84 +313,116 @@ export default function Admin() {
     setShowModal(true);
   };
 
-  const handleCreateTest = () => {
+  const handleCreateTest = async () => {
     if (!testTitle.trim()) {
       alert("Please enter a test title");
       return;
     }
 
-    const newTest = {
-      id: Date.now().toString(),
-      title: testTitle,
-      duration: testDuration,
-      marksPerQuestion: testMarksPerQuestion,
-      negativeMarking: testNegativeMarking,
-      instructions: testInstructions,
-      status: testStatus,
-      questions: [],
-      createdAt: new Date().toISOString()
-    };
+    try {
+      const newTest = {
+        id: Date.now().toString(),
+        title: testTitle,
+        duration: testDuration,
+        marksPerQuestion: testMarksPerQuestion,
+        negativeMarking: testNegativeMarking,
+        instructions: testInstructions,
+        status: testStatus,
+        questions: [],
+        createdAt: new Date().toISOString()
+      };
 
-    const updated = [...testSeries];
-    updated[selectedSeriesIdx].sections[selectedSectionIdx].tests = [
-      ...(updated[selectedSeriesIdx].sections[selectedSectionIdx].tests || []),
-      newTest
-    ];
-    setTestSeries(updated);
-    setShowModal(false);
-    
-    // Add notification
-    addNotification({
-      icon: "📝",
-      title: "New Test Created!",
-      message: `"${testTitle}" has been added to ${currentSection.title}.`,
-      type: "success"
-    });
-    
-    alert("✅ Test created successfully!");
+      const updated = [...testSeries];
+      updated[selectedSeriesIdx].sections[selectedSectionIdx].tests = [
+        ...(updated[selectedSeriesIdx].sections[selectedSectionIdx].tests || []),
+        newTest
+      ];
+      
+      // Update in Firebase
+      await updateTestSeries(updated[selectedSeriesIdx].id, updated[selectedSeriesIdx]);
+      
+      // Reload from Firebase
+      await reloadTestSeries();
+      
+      setShowModal(false);
+      
+      // Add notification
+      addNotification({
+        icon: "📝",
+        title: "New Test Created!",
+        message: `"${testTitle}" has been added to ${currentSection.title}.`,
+        type: "success"
+      });
+      
+      alert("✅ Test created successfully!");
+    } catch (error) {
+      console.error("Error creating test:", error);
+      alert("❌ Error creating test: " + error.message);
+    }
   };
 
-  const handleUpdateTest = () => {
+  const handleUpdateTest = async () => {
     if (!testTitle.trim()) {
       alert("Please enter a test title");
       return;
     }
 
-    const updated = [...testSeries];
-    updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[editingIdx] = {
-      ...updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[editingIdx],
-      title: testTitle,
-      duration: testDuration,
-      marksPerQuestion: testMarksPerQuestion,
-      negativeMarking: testNegativeMarking,
-      instructions: testInstructions,
-      status: testStatus
-    };
+    try {
+      const updated = [...testSeries];
+      updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[editingIdx] = {
+        ...updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[editingIdx],
+        title: testTitle,
+        duration: testDuration,
+        marksPerQuestion: testMarksPerQuestion,
+        negativeMarking: testNegativeMarking,
+        instructions: testInstructions,
+        status: testStatus
+      };
 
-    setTestSeries(updated);
-    setShowModal(false);
-    
-    // Add notification
-    addNotification({
-      icon: "✏️",
-      title: "Test Updated!",
-      message: `"${testTitle}" has been updated successfully.`,
-      type: "info"
-    });
-    
-    alert("✅ Test updated successfully!");
+      // Update in Firebase
+      await updateTestSeries(updated[selectedSeriesIdx].id, updated[selectedSeriesIdx]);
+      
+      // Reload from Firebase
+      await reloadTestSeries();
+      
+      setShowModal(false);
+      
+      // Add notification
+      addNotification({
+        icon: "✏️",
+        title: "Test Updated!",
+        message: `"${testTitle}" has been updated successfully.`,
+        type: "info"
+      });
+      
+      alert("✅ Test updated successfully!");
+    } catch (error) {
+      console.error("Error updating test:", error);
+      alert("❌ Error updating test: " + error.message);
+    }
   };
 
-  const handleDeleteTest = (idx) => {
+  const handleDeleteTest = async (idx) => {
     if (!window.confirm("Are you sure? This will delete all questions in this test!")) {
       return;
     }
 
-    const updated = [...testSeries];
-    updated[selectedSeriesIdx].sections[selectedSectionIdx].tests = 
-      updated[selectedSeriesIdx].sections[selectedSectionIdx].tests.filter((_, i) => i !== idx);
-    setTestSeries(updated);
-    alert("✅ Test deleted successfully!");
+    try {
+      const updated = [...testSeries];
+      updated[selectedSeriesIdx].sections[selectedSectionIdx].tests = 
+        updated[selectedSeriesIdx].sections[selectedSectionIdx].tests.filter((_, i) => i !== idx);
+      
+      // Update in Firebase
+      await updateTestSeries(updated[selectedSeriesIdx].id, updated[selectedSeriesIdx]);
+      
+      // Reload from Firebase
+      await reloadTestSeries();
+      
+      alert("✅ Test deleted successfully!");
+    } catch (error) {
+      console.error("Error deleting test:", error);
+      alert("❌ Error deleting test: " + error.message);
+    }
   };
 
   // ==================== QUESTION FUNCTIONS ====================
@@ -346,7 +450,7 @@ export default function Admin() {
     setShowModal(true);
   };
 
-  const handleCreateQuestion = () => {
+  const handleCreateQuestion = async () => {
     if (!questionText.trim()) {
       alert("Please enter a question");
       return;
@@ -357,26 +461,37 @@ export default function Admin() {
       return;
     }
 
-    const newQuestion = {
-      id: Date.now().toString(),
-      question: questionText,
-      options: [...options],
-      answer: correctAnswer,
-      explanation: explanation,
-      image: questionImage
-    };
+    try {
+      const newQuestion = {
+        id: Date.now().toString(),
+        question: questionText,
+        options: [...options],
+        answer: correctAnswer,
+        explanation: explanation,
+        image: questionImage
+      };
 
-    const updated = [...testSeries];
-    updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[selectedTestIdx].questions = [
-      ...(updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[selectedTestIdx].questions || []),
-      newQuestion
-    ];
-    setTestSeries(updated);
-    setShowModal(false);
-    alert("✅ Question added successfully!");
+      const updated = [...testSeries];
+      updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[selectedTestIdx].questions = [
+        ...(updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[selectedTestIdx].questions || []),
+        newQuestion
+      ];
+      
+      // Update in Firebase
+      await updateTestSeries(updated[selectedSeriesIdx].id, updated[selectedSeriesIdx]);
+      
+      // Reload from Firebase
+      await reloadTestSeries();
+      
+      setShowModal(false);
+      alert("✅ Question added successfully!");
+    } catch (error) {
+      console.error("Error adding question:", error);
+      alert("❌ Error adding question: " + error.message);
+    }
   };
 
-  const handleUpdateQuestion = () => {
+  const handleUpdateQuestion = async () => {
     if (!questionText.trim()) {
       alert("Please enter a question");
       return;
@@ -387,31 +502,52 @@ export default function Admin() {
       return;
     }
 
-    const updated = [...testSeries];
-    updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[selectedTestIdx].questions[editingIdx] = {
-      ...updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[selectedTestIdx].questions[editingIdx],
-      question: questionText,
-      options: [...options],
-      answer: correctAnswer,
-      explanation: explanation,
-      image: questionImage
-    };
+    try {
+      const updated = [...testSeries];
+      updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[selectedTestIdx].questions[editingIdx] = {
+        ...updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[selectedTestIdx].questions[editingIdx],
+        question: questionText,
+        options: [...options],
+        answer: correctAnswer,
+        explanation: explanation,
+        image: questionImage
+      };
 
-    setTestSeries(updated);
-    setShowModal(false);
-    alert("✅ Question updated successfully!");
+      // Update in Firebase
+      await updateTestSeries(updated[selectedSeriesIdx].id, updated[selectedSeriesIdx]);
+      
+      // Reload from Firebase
+      await reloadTestSeries();
+      
+      setShowModal(false);
+      alert("✅ Question updated successfully!");
+    } catch (error) {
+      console.error("Error updating question:", error);
+      alert("❌ Error updating question: " + error.message);
+    }
   };
 
-  const handleDeleteQuestion = (idx) => {
+  const handleDeleteQuestion = async (idx) => {
     if (!window.confirm("Are you sure you want to delete this question?")) {
       return;
     }
 
-    const updated = [...testSeries];
-    updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[selectedTestIdx].questions = 
-      updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[selectedTestIdx].questions.filter((_, i) => i !== idx);
-    setTestSeries(updated);
-    alert("✅ Question deleted successfully!");
+    try {
+      const updated = [...testSeries];
+      updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[selectedTestIdx].questions = 
+        updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[selectedTestIdx].questions.filter((_, i) => i !== idx);
+      
+      // Update in Firebase
+      await updateTestSeries(updated[selectedSeriesIdx].id, updated[selectedSeriesIdx]);
+      
+      // Reload from Firebase
+      await reloadTestSeries();
+      
+      alert("✅ Question deleted successfully!");
+    } catch (error) {
+      console.error("Error deleting question:", error);
+      alert("❌ Error deleting question: " + error.message);
+    }
   };
 
   // Bulk Delete Functions
@@ -432,7 +568,7 @@ export default function Admin() {
     }
   };
 
-  const handleBulkDelete = () => {
+  const handleBulkDelete = async () => {
     if (selectedQuestions.length === 0) {
       alert("Please select questions to delete");
       return;
@@ -442,14 +578,24 @@ export default function Admin() {
       return;
     }
 
-    const updated = [...testSeries];
-    updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[selectedTestIdx].questions = 
-      updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[selectedTestIdx].questions.filter((_, idx) => !selectedQuestions.includes(idx));
-    
-    setTestSeries(updated);
-    setSelectedQuestions([]);
-    setBulkDeleteMode(false);
-    alert(`✅ ${selectedQuestions.length} question(s) deleted successfully!`);
+    try {
+      const updated = [...testSeries];
+      updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[selectedTestIdx].questions = 
+        updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[selectedTestIdx].questions.filter((_, idx) => !selectedQuestions.includes(idx));
+      
+      // Update in Firebase
+      await updateTestSeries(updated[selectedSeriesIdx].id, updated[selectedSeriesIdx]);
+      
+      // Reload from Firebase
+      await reloadTestSeries();
+      
+      setSelectedQuestions([]);
+      setBulkDeleteMode(false);
+      alert(`✅ ${selectedQuestions.length} question(s) deleted successfully!`);
+    } catch (error) {
+      console.error("Error deleting questions:", error);
+      alert("❌ Error deleting questions: " + error.message);
+    }
   };
 
   // ==================== BULK UPLOAD WITH AI ERROR DETECTION ====================
@@ -631,7 +777,7 @@ export default function Admin() {
   };
 
   // Handle bulk upload
-  const handleBulkUpload = () => {
+  const handleBulkUpload = async () => {
     if (!bulkJsonInput || bulkJsonInput.trim() === '') {
       alert("❌ Please paste JSON data first!");
       return;
@@ -702,37 +848,48 @@ export default function Admin() {
       if (!window.confirm(`⚠️ ${warnings.length} warning(s):\n\n${warnings.join('\n')}\n\nContinue?`)) return;
     }
 
-    // Import
-    const updated = [...testSeries];
-    const existing = updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[selectedTestIdx].questions || [];
-    
-    const newQuestions = questions.map(q => ({
-      id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-      question: q.question,
-      options: q.options,
-      answer: q.answer,
-      explanation: q.explanation || ''
-    }));
-    
-    updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[selectedTestIdx].questions = [...existing, ...newQuestions];
-    
-    setTestSeries(updated);
-    setShowBulkUpload(false);
-    setBulkJsonInput("");
-    
-    // Add notification
-    addNotification({
-      icon: "📦",
-      title: "Bulk Upload Successful!",
-      message: `${questions.length} question(s) imported successfully.`,
-      type: "success"
-    });
-    
-    let msg = `✅ Imported ${questions.length} question(s)!`;
-    if (wasAutoFixed) msg += '\n\n🤖 JSON was auto-fixed';
-    if (warnings.length > 5) msg += `\n\n⚠️ ${warnings.length} missing explanations`;
-    
-    alert(msg);
+    try {
+      // Import
+      const updated = [...testSeries];
+      const existing = updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[selectedTestIdx].questions || [];
+      
+      const newQuestions = questions.map(q => ({
+        id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+        question: q.question,
+        options: q.options,
+        answer: q.answer,
+        explanation: q.explanation || '',
+        image: q.image || ''
+      }));
+      
+      updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[selectedTestIdx].questions = [...existing, ...newQuestions];
+      
+      // Update in Firebase
+      await updateTestSeries(updated[selectedSeriesIdx].id, updated[selectedSeriesIdx]);
+      
+      // Reload from Firebase
+      await reloadTestSeries();
+      
+      setShowBulkUpload(false);
+      setBulkJsonInput("");
+      
+      // Add notification
+      addNotification({
+        icon: "📦",
+        title: "Bulk Upload Successful!",
+        message: `${questions.length} question(s) imported successfully.`,
+        type: "success"
+      });
+      
+      let msg = `✅ Imported ${questions.length} question(s)!`;
+      if (wasAutoFixed) msg += '\n\n🤖 JSON was auto-fixed';
+      if (warnings.length > 5) msg += `\n\n⚠️ ${warnings.length} missing explanations`;
+      
+      alert(msg);
+    } catch (error) {
+      console.error("Error bulk uploading questions:", error);
+      alert("❌ Error uploading questions: " + error.message);
+    }
   };
 
   // ==================== AI QUESTION GENERATOR ====================
@@ -897,7 +1054,12 @@ export default function Admin() {
         ...generatedQuestions
       ];
       
-      setTestSeries(updated);
+      // Update in Firebase
+      await updateTestSeries(updated[selectedSeriesIdx].id, updated[selectedSeriesIdx]);
+      
+      // Reload from Firebase
+      await reloadTestSeries();
+      
       setShowAiGenerator(false);
       
       // Reset form
@@ -927,6 +1089,7 @@ export default function Admin() {
       
       alert(successMsg);
     } catch (error) {
+      console.error("Error generating questions:", error);
       alert("❌ Error generating questions: " + error.message);
     } finally {
       if (generateBtn) {

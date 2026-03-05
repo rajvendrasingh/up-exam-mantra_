@@ -1,1 +1,11 @@
-/* App.css - No constraints */
+/* App.css - Mobile Responsive */
+
+#root {
+  width: 100%;
+  overflow-x: hidden;
+}
+
+.app-container {
+  width: 100%;
+  max-width: 100%;
+}
