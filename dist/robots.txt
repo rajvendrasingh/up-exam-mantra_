@@ -1,0 +1,11 @@
+User-agent: *
+Allow: /
+Allow: /home
+Allow: /test
+Allow: /leaderboard
+Allow: /dashboard
+Allow: /help
+Disallow: /admin
+Disallow: /settings
+
+Sitemap: https://up-exam-mantra.web.app/sitemap.xml

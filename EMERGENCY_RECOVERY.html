@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>🚨 Emergency Recovery - UP Exam Mantra</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 900px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #1e293b;
+            color: #fff;
+        }
+        .container {
+            background: #334155;
+            padding: 30px;
+            border-radius: 15px;
+        }
+        h1 { color: #ef4444; text-align: center; }
+        button {
+            background: #10b981;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            width: 100%;
+            margin: 10px 0;
+        }
+        button:hover { background: #059669; }
+        button.danger { background: #ef4444; }
+        button.danger:hover { background: #dc2626; }
+        #output {
+            background: #1e293b;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+        .warning {
+            background: #fef3c7;
+            color: #92400e;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            border-left: 4px solid #f59e0b;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚨 EMERGENCY RECOVERY TOOL</h1>
+        
+        <div class="warning">
+            <strong>⚠️ IMPORTANT:</strong><br>
+            Yeh tool sabhi test series ko Firestore se directly activate karega.<br>
+            Koi bhi test series delete nahi hogi, sirf status "active" ho jayega.
+        </div>
+
+        <button onclick="step1()">Step 1: Connect to Firestore</button>
+        <button onclick="step2()">Step 2: Show All Test Series</button>
+        <button onclick="step3()">Step 3: 🚨 ACTIVATE ALL TEST SERIES</button>
+        <button onclick="step4()">Step 4: Verify Recovery</button>
+        
+        <div id="output"></div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { getFirestore, collection, getDocs, doc, updateDoc } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyDk6yXI-QYd85qd-_1VshveXXHSlm5bKVo",
+            authDomain: "up-exam-mantra.firebaseapp.com",
+            projectId: "up-exam-mantra",
+            storageBucket: "up-exam-mantra.firebasestorage.app",
+            messagingSenderId: "508833223039",
+            appId: "1:508833223039:web:2435b355a5ba4581ad4a4a"
+        };
+
+        let app, db;
+
+        function log(msg) {
+            const output = document.getElementById('output');
+            output.innerHTML += msg + '\n';
+            output.scrollTop = output.scrollHeight;
+        }
+
+        window.step1 = function() {
+            try {
+                log('🔗 Connecting to Firestore...');
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                log('✅ Connected successfully!\n');
+            } catch (error) {
+                log('❌ Error: ' + error.message);
+            }
+        };
+
+        window.step2 = async function() {
+            if (!db) {
+                alert('Please run Step 1 first!');
+                return;
+            }
+
+            try {
+                log('📊 Fetching all test series from Firestore...\n');
+                const snapshot = await getDocs(collection(db, 'testSeries'));
+                
+                log(`Total test series in database: ${snapshot.size}\n`);
+                log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+                
+                snapshot.forEach((doc, index) => {
+                    const data = doc.data();
+                    log(`${index + 1}. ${data.title || 'Untitled'}`);
+                    log(`   ID: ${doc.id}`);
+                    log(`   Status: ${data.status || 'unknown'}`);
+                    log(`   Sections: ${data.sections?.length || 0}`);
+                    log(`   Description: ${(data.description || '').substring(0, 80)}...`);
+                    log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+                });
+                
+                log('✅ All test series listed above\n');
+            } catch (error) {
+                log('❌ Error: ' + error.message);
+            }
+        };
+
+        window.step3 = async function() {
+            if (!db) {
+                alert('Please run Step 1 first!');
+                return;
+            }
+
+            if (!confirm('🚨 ACTIVATE ALL TEST SERIES?\n\nThis will make ALL test series visible to users.\n\nContinue?')) {
+                return;
+            }
+
+            try {
+                log('🚨 ACTIVATING ALL TEST SERIES...\n');
+                const snapshot = await getDocs(collection(db, 'testSeries'));
+                
+                let activated = 0;
+                let alreadyActive = 0;
+                
+                for (const docSnap of snapshot.docs) {
+                    const data = docSnap.data();
+                    
+                    if (data.status !== 'active') {
+                        await updateDoc(doc(db, 'testSeries', docSnap.id), {
+                            status: 'active',
+                            updatedAt: new Date().toISOString()
+                        });
+                        log(`✅ Activated: ${data.title}`);
+                        activated++;
+                    } else {
+                        log(`ℹ️  Already active: ${data.title}`);
+                        alreadyActive++;
+                    }
+                }
+                
+                log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                log(`🎉 RECOVERY COMPLETE!`);
+                log(`✅ Activated: ${activated} test series`);
+                log(`ℹ️  Already active: ${alreadyActive} test series`);
+                log(`📊 Total: ${snapshot.size} test series`);
+                log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+                
+                alert(`✅ SUCCESS!\n\n${activated} test series activated!\n${alreadyActive} were already active.\n\nRefresh admin panel to see changes.`);
+            } catch (error) {
+                log('❌ Error: ' + error.message);
+                alert('Error: ' + error.message);
+            }
+        };
+
+        window.step4 = async function() {
+            if (!db) {
+                alert('Please run Step 1 first!');
+                return;
+            }
+
+            try {
+                log('🔎 Verifying all test series...\n');
+                const snapshot = await getDocs(collection(db, 'testSeries'));
+                
+                let activeCount = 0;
+                let draftCount = 0;
+                
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    if (data.status === 'active') {
+                        activeCount++;
+                        log(`✅ ${data.title} - ACTIVE`);
+                    } else {
+                        draftCount++;
+                        log(`📝 ${data.title} - DRAFT`);
+                    }
+                });
+                
+                log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                log(`✅ Active: ${activeCount}`);
+                log(`📝 Draft: ${draftCount}`);
+                log(`📊 Total: ${snapshot.size}`);
+                log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+                
+                if (draftCount > 0) {
+                    alert(`⚠️ Warning!\n\n${draftCount} test series are still in DRAFT mode.\n\nRun Step 3 again to activate them.`);
+                } else {
+                    alert(`✅ Perfect!\n\nAll ${activeCount} test series are ACTIVE!`);
+                }
+            } catch (error) {
+                log('❌ Error: ' + error.message);
+            }
+        };
+    </script>
+</body>
+</html>

@@ -14,12 +14,13 @@ import Bookmarks from "./Bookmarks";
 import Leaderboard from "./Leaderboard";
 import AttemptedTests from "./AttemptedTests";
 import Footer from "./components/Footer";
+import StudyMaterial from "./StudyMaterial";
 import { TestSeriesProvider, TestSeriesContext } from "./TestSeriesContext";
 
 function AppContent() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { setUseFirebase, notifications, markAsRead, markAllAsRead } = useContext(TestSeriesContext);
+  const { notifications, markAsRead, markAllAsRead } = useContext(TestSeriesContext);
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -64,10 +65,6 @@ function AppContent() {
       setShowAdminLogin(false);
       setAdminUsername("");
       setAdminPassword("");
-      
-      // Enable Firebase for admin too
-      setUseFirebase(true);
-      
       navigate("/admin");
     } else {
       alert("Wrong username or password!");
@@ -76,45 +73,6 @@ function AppContent() {
 
   const handleAuthSuccess = async (authenticatedUser) => {
     setUser(authenticatedUser);
-    
-    // Automatically enable Firebase sync on login
-    try {
-      // Check if this is first time login (data exists in localStorage but not synced)
-      const hasLocalData = localStorage.getItem("subjects") || localStorage.getItem("testSeries");
-      
-      setUseFirebase(true);
-      
-      // Show a subtle notification
-      const notification = document.createElement('div');
-      notification.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-        color: white;
-        padding: 15px 25px;
-        border-radius: 12px;
-        box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
-        z-index: 10000;
-        font-weight: 600;
-        animation: slideIn 0.3s ease-out;
-      `;
-      notification.innerHTML = hasLocalData 
-        ? '✅ Firebase sync enabled! Your data will be saved to cloud.'
-        : '✅ Firebase sync enabled automatically!';
-      document.body.appendChild(notification);
-      
-      setTimeout(() => {
-        notification.style.animation = 'slideOut 0.3s ease-out';
-        setTimeout(() => notification.remove(), 300);
-      }, 3000);
-      
-      console.log("✅ Firebase sync enabled on login");
-    } catch (error) {
-      console.error("Error enabling Firebase:", error);
-    }
-    
-    // Navigate to home page after successful login
     navigate("/home");
   };
 
@@ -234,6 +192,13 @@ function AppContent() {
               fontSize: "1.2rem",
               letterSpacing: "1px"
             }}>Leaderboard</Link>
+            <Link to="/study-material" style={{
+              color: "#7c3aed",
+              textDecoration: "none",
+              fontWeight: "bold",
+              fontSize: "1.2rem",
+              letterSpacing: "1px"
+            }}>📚 Study</Link>
           </div>
 
           {/* Mobile Navigation */}
@@ -1537,6 +1502,7 @@ function AppContent() {
         <Route path="/settings" element={user || isAdmin ? <Settings /> : <Navigate to="/auth" />} />
         <Route path="/bookmarks" element={user || isAdmin ? <Bookmarks /> : <Navigate to="/auth" />} />
         <Route path="/leaderboard" element={<Leaderboard />} />
+        <Route path="/study-material" element={user || isAdmin ? <StudyMaterial /> : <Navigate to="/auth" />} />
         <Route
           path="/admin"
           element={isAdmin ? <Admin /> : <Navigate to="/" />}

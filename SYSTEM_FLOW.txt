@@ -1,0 +1,110 @@
+OTP PASSWORD RESET SYSTEM - FLOW DIAGRAM
+==========================================
+
+USER FLOW:
+----------
+
+1. LOGIN PAGE
+   ↓
+   [Forgot Password?] button
+   ↓
+
+2. STEP 1: EMAIL ENTRY
+   ↓
+   User enters email → Click "Send OTP"
+   ↓
+   System checks Firestore OTP Pool
+   ↓
+   Gets unused OTP (4-digit)
+   ↓
+   Stores in passwordResets collection
+   ↓
+   Sends email via EmailJS
+   ↓
+
+3. STEP 2: OTP VERIFICATION
+   ↓
+   User receives email with OTP
+   ↓
+   User enters OTP → Click "Verify OTP"
+   ↓
+   System checks:
+   - OTP correct?
+   - Not expired? (15 min)
+   - Attempts < 3?
+   ↓
+   If valid → Mark as verified
+   ↓
+
+4. STEP 3: PASSWORD RESET
+   ↓
+   User enters new password
+   ↓
+   System sends Firebase password reset email
+   ↓
+   User clicks link in email
+   ↓
+   Sets new password
+   ↓
+   SUCCESS! ✅
+
+
+ADMIN FLOW:
+-----------
+
+1. ADMIN LOGIN
+   ↓
+   Admin Panel Dashboard
+   ↓
+
+2. OTP POOL MANAGEMENT
+   ↓
+   [Initialize OTP Pool] button
+   ↓
+   Generates 400 unique 4-digit OTPs
+   ↓
+   Stores in Firestore (otpPool collection)
+   ↓
+   Each OTP: { otp, used: false, createdAt }
+   ↓
+
+3. MONITOR STATS
+   ↓
+   [Load Stats] button
+   ↓
+   Shows:
+   - Total OTPs: 400
+   - Available: unused count
+   - Used: used count
+   ↓
+   When Available < 50 → Re-initialize
+
+
+TECHNICAL FLOW:
+---------------
+
+DATABASE (Firestore):
+- otpPool collection
+  └─ {otp}: { otp, used, createdAt }
+
+- passwordResets collection
+  └─ {email}: { email, otp, createdAt, expiresAt, verified, attempts }
+
+EMAIL SERVICE (EmailJS):
+- Service: Gmail
+- Template: OTP email
+- Variables: to_email, otp_code, app_name, validity
+
+FIREBASE AUTH:
+- sendPasswordResetEmail()
+- Sends secure reset link
+- User sets new password
+
+
+SECURITY:
+---------
+✅ OTP valid for 15 minutes
+✅ Maximum 3 attempts
+✅ Each OTP used only once
+✅ Automatic expiry
+✅ Firebase secure password reset

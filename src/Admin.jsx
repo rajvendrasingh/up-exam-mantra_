@@ -3,11 +3,53 @@ import { TestSeriesContext } from "./TestSeriesContext";
 import { 
   createTestSeries,
   updateTestSeries,
-  deleteTestSeries
+  deleteTestSeries,
+  createSection,
+  updateSection,
+  deleteSection,
+  createTest,
+  updateTest,
+  deleteTest,
+  createQuestion,
+  updateQuestion,
+  deleteQuestion,
+  bulkCreateQuestions,
+  migrateSeriesDataSafely,
+  scheduleLiveTest,
+  getLiveTestSchedule,
+  deleteLiveTestSchedule,
+  createStudyMaterial,
+  getAllStudyMaterials,
+  updateStudyMaterial,
+  deleteStudyMaterial,
+  createStudySection,
+  updateStudySection,
+  deleteStudySection,
+  createStudyItem,
+  updateStudyItem,
+  deleteStudyItem
 } from "./services/firestoreService";
+import RichTextEditor from "./components/RichTextEditor";
+import AIPdfConverter from "./components/AIPdfConverter";
+import { storage } from "./firebase";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 export default function Admin() {
-  const { testSeries, setTestSeries, addNotification, reloadTestSeries } = useContext(TestSeriesContext);
+  const { testSeries, addNotification, reloadTestSeries } = useContext(TestSeriesContext);
+  
+  // Load ALL test series (including hidden) when Admin panel opens
+  useEffect(() => {
+    console.log("🔄 Admin panel opened - loading all test series...");
+    reloadTestSeries(true);
+    // Study materials bhi load karo
+    getAllStudyMaterials().then(setStudyMaterials).catch(console.error);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  
+  // Teacher Photo Upload State
+  const [teacherPhoto, setTeacherPhoto] = useState(null);
+  const [teacherPhotoURL, setTeacherPhotoURL] = useState("");
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   
   // View States
   const [currentView, setCurrentView] = useState("dashboard");
@@ -41,6 +83,7 @@ export default function Admin() {
   // Question Form
   const [questionText, setQuestionText] = useState("");
   const [options, setOptions] = useState(["", "", "", ""]);
+  const [numberOfOptions, setNumberOfOptions] = useState(4); // Admin can change this
   const [correctAnswer, setCorrectAnswer] = useState(0);
   const [explanation, setExplanation] = useState("");
   const [questionImage, setQuestionImage] = useState("");
@@ -53,6 +96,10 @@ export default function Admin() {
   const [showBulkUpload, setShowBulkUpload] = useState(false);
   const [bulkJsonInput, setBulkJsonInput] = useState("");
   
+  // Filter States
+  // eslint-disable-next-line no-unused-vars
+  const [showOnlyHidden, setShowOnlyHidden] = useState(false);
+  
   // AI Generator States
   const [showAiGenerator, setShowAiGenerator] = useState(false);
   const [aiTopic, setAiTopic] = useState("");
@@ -61,11 +108,252 @@ export default function Admin() {
   const [aiLanguage, setAiLanguage] = useState("english");
   const [aiQuestionType, setAiQuestionType] = useState("mixed");
   const [aiIncludeExplanation, setAiIncludeExplanation] = useState(true);
+  
+  // AI PDF Converter State
+  const [showPdfConverter, setShowPdfConverter] = useState(false);
+  
+  // Text to JSON Converter State
+  const [showTextConverter, setShowTextConverter] = useState(false);
+  const [converterText, setConverterText] = useState("");
+
+  // Live Test Scheduling State
+  const [showLiveModal, setShowLiveModal] = useState(false);
+  const [liveTestIdx, setLiveTestIdx] = useState(null); // test index in currentSection
+  const [liveStartTime, setLiveStartTime] = useState("");
+  const [liveEndTime, setLiveEndTime] = useState("");
+  const [liveSchedule, setLiveSchedule] = useState(null); // existing schedule for selected test
+
+  // Saving state — double submit rokne ke liye
+  const [saving, setSaving] = useState(false);
+
+  // ==================== STUDY MATERIAL STATE ====================
+  const [studyMaterials, setStudyMaterials] = useState([]);
+  const [studyView, setStudyView] = useState("list"); // "list" | "sections" | "items"
+  const [selectedStudyMatIdx, setSelectedStudyMatIdx] = useState(null);
+  const [selectedStudySectionIdx, setSelectedStudySectionIdx] = useState(null);
+  const [showStudyModal, setShowStudyModal] = useState(false);
+  const [studyModalType, setStudyModalType] = useState(""); // "mat" | "section" | "item"
+  const [studyEditingIdx, setStudyEditingIdx] = useState(null);
+  const [studySaving, setStudySaving] = useState(false);
+  // Form fields
+  const [studyTitle, setStudyTitle] = useState("");
+  const [studyDescription, setStudyDescription] = useState("");
+  const [studyItemType, setStudyItemType] = useState("video"); // "video" | "notes"
+  const [studyYoutubeUrl, setStudyYoutubeUrl] = useState("");
+  const [studyPdfUrl, setStudyPdfUrl] = useState("");
 
   // Get current items
   const currentSeries = selectedSeriesIdx !== null ? testSeries[selectedSeriesIdx] : null;
   const currentSection = currentSeries && selectedSectionIdx !== null ? currentSeries.sections?.[selectedSectionIdx] : null;
   const currentTest = currentSection && selectedTestIdx !== null ? currentSection.tests?.[selectedTestIdx] : null;
+
+  // ==================== LIVE TEST FUNCTIONS ====================
+
+  // Live test schedule modal kholna
+  const openLiveModal = async (testIdx) => {
+    const test = currentSection.tests[testIdx];
+    setLiveTestIdx(testIdx);
+
+    // Default: aaj se 1 ghante baad start, 2 ghante baad end
+    const now = new Date();
+    const start = new Date(now.getTime() + 60 * 60 * 1000);
+    const end = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+
+    // Datetime-local format: YYYY-MM-DDTHH:MM
+    const toLocal = (d) => {
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    };
+
+    // Existing schedule check karo
+    try {
+      const existing = await getLiveTestSchedule(currentSeries.id, currentSection.id, test.id);
+      if (existing) {
+        setLiveSchedule(existing);
+        setLiveStartTime(toLocal(new Date(existing.startTime)));
+        setLiveEndTime(toLocal(new Date(existing.endTime)));
+      } else {
+        setLiveSchedule(null);
+        setLiveStartTime(toLocal(start));
+        setLiveEndTime(toLocal(end));
+      }
+    } catch {
+      setLiveSchedule(null);
+      setLiveStartTime(toLocal(start));
+      setLiveEndTime(toLocal(end));
+    }
+
+    setShowLiveModal(true);
+  };
+
+  // Live test schedule save karo
+  const handleSaveLiveSchedule = async () => {
+    if (!liveStartTime || !liveEndTime) {
+      alert("❌ Start aur End time dono bharo!");
+      return;
+    }
+
+    const start = new Date(liveStartTime).getTime();
+    const end = new Date(liveEndTime).getTime();
+
+    if (end <= start) {
+      alert("❌ End time, Start time se baad honi chahiye!");
+      return;
+    }
+
+    const test = currentSection.tests[liveTestIdx];
+
+    try {
+      await scheduleLiveTest({
+        testSeriesId: currentSeries.id,
+        sectionId: currentSection.id,
+        testId: test.id,
+        testTitle: test.title,
+        seriesTitle: currentSeries.title,
+        sectionTitle: currentSection.title,
+        startTime: start,
+        endTime: end,
+        oneAttemptPerUser: true,
+        isActive: true
+      });
+
+      setShowLiveModal(false);
+      alert(`✅ Live test schedule ho gaya!\n\n📝 Test: ${test.title}\n⏰ Start: ${new Date(start).toLocaleString('en-IN')}\n⏰ End: ${new Date(end).toLocaleString('en-IN')}\n\n🔒 Har user sirf ek baar de sakta hai.`);
+    } catch (error) {
+      alert("❌ Error: " + error.message);
+    }
+  };
+
+  // Live test schedule hatao
+  const handleRemoveLiveSchedule = async () => {
+    if (!liveSchedule) return;
+    if (!window.confirm("Kya aap yeh live schedule hatana chahte hain?")) return;
+
+    try {
+      await deleteLiveTestSchedule(liveSchedule.id);
+      setShowLiveModal(false);
+      alert("✅ Live schedule hata diya gaya!");
+    } catch (error) {
+      alert("❌ Error: " + error.message);
+    }
+  };
+
+  // ==================== STUDY MATERIAL FUNCTIONS ====================
+
+  const reloadStudyMaterials = async () => {
+    const data = await getAllStudyMaterials();
+    setStudyMaterials(data);
+  };
+
+  const currentStudyMat = selectedStudyMatIdx !== null ? studyMaterials[selectedStudyMatIdx] : null;
+  const currentStudySection = currentStudyMat && selectedStudySectionIdx !== null ? currentStudyMat.sections?.[selectedStudySectionIdx] : null;
+
+  const openStudyModal = (type, editIdx = null) => {
+    setStudyModalType(type);
+    setStudyEditingIdx(editIdx);
+    setStudySaving(false);
+
+    if (type === "mat" && editIdx !== null) {
+      const m = studyMaterials[editIdx];
+      setStudyTitle(m.title || ""); setStudyDescription(m.description || "");
+    } else if (type === "section" && editIdx !== null) {
+      const s = currentStudyMat.sections[editIdx];
+      setStudyTitle(s.title || ""); setStudyDescription("");
+    } else if (type === "item" && editIdx !== null) {
+      const item = currentStudySection.items[editIdx];
+      setStudyTitle(item.title || ""); setStudyDescription(item.description || "");
+      setStudyItemType(item.type || "video");
+      setStudyYoutubeUrl(item.youtubeUrl || ""); setStudyPdfUrl(item.pdfUrl || "");
+    } else {
+      setStudyTitle(""); setStudyDescription("");
+      setStudyItemType("video"); setStudyYoutubeUrl(""); setStudyPdfUrl("");
+    }
+    setShowStudyModal(true);
+  };
+
+  const handleStudySave = async () => {
+    if (!studyTitle.trim()) { alert("Title bharo!"); return; }
+    if (studySaving) return;
+    setStudySaving(true);
+    try {
+      if (studyModalType === "mat") {
+        const data = { title: studyTitle, description: studyDescription, order: studyMaterials.length };
+        if (studyEditingIdx !== null) {
+          await updateStudyMaterial(studyMaterials[studyEditingIdx].id, data);
+        } else {
+          await createStudyMaterial(data);
+        }
+      } else if (studyModalType === "section") {
+        const data = { title: studyTitle, order: (currentStudyMat.sections?.length || 0) };
+        if (studyEditingIdx !== null) {
+          await updateStudySection(currentStudyMat.id, currentStudyMat.sections[studyEditingIdx].id, data);
+        } else {
+          await createStudySection(currentStudyMat.id, data);
+        }
+      } else if (studyModalType === "item") {
+        const data = {
+          title: studyTitle, description: studyDescription,
+          type: studyItemType,
+          youtubeUrl: studyItemType === "video" ? studyYoutubeUrl : "",
+          pdfUrl: studyItemType === "notes" ? studyPdfUrl : "",
+          order: (currentStudySection.items?.length || 0)
+        };
+        if (studyEditingIdx !== null) {
+          await updateStudyItem(currentStudyMat.id, currentStudySection.id, currentStudySection.items[studyEditingIdx].id, data);
+        } else {
+          await createStudyItem(currentStudyMat.id, currentStudySection.id, data);
+        }
+      }
+      await reloadStudyMaterials();
+      setShowStudyModal(false);
+      alert("✅ Saved!");
+    } catch (err) {
+      alert("❌ Error: " + err.message);
+    } finally {
+      setStudySaving(false);
+    }
+  };
+
+  const handleStudyDelete = async (type, idx) => {
+    if (!window.confirm("Delete karo?")) return;
+    try {
+      if (type === "mat") {
+        await deleteStudyMaterial(studyMaterials[idx].id);
+        setStudyView("list"); setSelectedStudyMatIdx(null);
+      } else if (type === "section") {
+        await deleteStudySection(currentStudyMat.id, currentStudyMat.sections[idx].id);
+        setStudyView("sections"); setSelectedStudySectionIdx(null);
+      } else if (type === "item") {
+        await deleteStudyItem(currentStudyMat.id, currentStudySection.id, currentStudySection.items[idx].id);
+      }
+      await reloadStudyMaterials();
+      alert("✅ Deleted!");
+    } catch (err) {
+      alert("❌ Error: " + err.message);
+    }
+  };
+
+  /**
+   * Auto-migrate helper: agar series purane nested format mein hai (section/test ke paas Firestore ID nahi)
+   * to pehle migrate karo, phir reload karo.
+   * Returns true agar migration hua, false agar pehle se subcollections mein tha.
+   */
+  const ensureMigrated = async (series) => {
+    // Agar section ke paas Firestore ID hai to subcollections mein hai — sab theek hai
+    const firstSection = series.sections?.[0];
+    if (!firstSection || firstSection.id) return false; // Already migrated ya koi section nahi
+
+    // Purana nested format — migrate karo
+    const confirmed = window.confirm(
+      `⚠️ "${series.title}" ka data purane format mein hai.\n\nEdit karne se pehle isko naye format mein migrate karna hoga.\n\nMigrate karo? (Data safe rahega)`
+    );
+    if (!confirmed) throw new Error("Migration cancelled by user");
+
+    await migrateSeriesDataSafely(series);
+    await reloadTestSeries(true);
+    alert("✅ Migration complete! Ab aap edit kar sakte hain.");
+    return true;
+  };
 
   // ==================== TEST SERIES FUNCTIONS ====================
   
@@ -76,6 +364,7 @@ export default function Admin() {
     setSeriesCategory("");
     setSeriesStatus("active");
     setEditingIdx(null);
+    setSaving(false);
     setShowModal(true);
   };
 
@@ -91,11 +380,9 @@ export default function Admin() {
   };
 
   const handleCreateSeries = async () => {
-    if (!seriesTitle.trim()) {
-      alert("Please enter a title");
-      return;
-    }
-
+    if (!seriesTitle.trim()) { alert("Please enter a title"); return; }
+    if (saving) return;
+    setSaving(true);
     try {
       const newSeries = {
         title: seriesTitle,
@@ -105,60 +392,35 @@ export default function Admin() {
         sections: [],
         order: testSeries.length
       };
-
-      // Save to Firebase
-      console.log("Creating test series in Firebase...");
       const createdSeries = await createTestSeries(newSeries);
       console.log("Test series created:", createdSeries.id);
-
-      // Reload from Firebase to get updated data
-      await reloadTestSeries();
-      
+      await reloadTestSeries(true);
       setShowModal(false);
-      
-      // Add notification
-      addNotification({
-        icon: "🎉",
-        title: "New Test Series Created!",
-        message: `"${seriesTitle}" has been created successfully.`,
-        type: "success"
-      });
-      
+      addNotification({ icon: "🎉", title: "New Test Series Created!", message: `"${seriesTitle}" has been created successfully.`, type: "success" });
       alert("✅ Test series created successfully!");
     } catch (error) {
       console.error("Error creating test series:", error);
       alert("❌ Error creating test series: " + error.message);
+    } finally {
+      setSaving(false);
     }
   };
 
   const handleUpdateSeries = async () => {
-    if (!seriesTitle.trim()) {
-      alert("Please enter a title");
-      return;
-    }
-
+    if (!seriesTitle.trim()) { alert("Please enter a title"); return; }
+    if (saving) return;
+    setSaving(true);
     try {
       const seriesToUpdate = testSeries[editingIdx];
-      const updates = {
-        title: seriesTitle,
-        description: seriesDescription,
-        category: seriesCategory,
-        status: seriesStatus
-      };
-
-      // Update in Firebase
-      console.log("Updating test series in Firebase:", seriesToUpdate.id);
-      await updateTestSeries(seriesToUpdate.id, updates);
-      console.log("Test series updated successfully");
-
-      // Reload from Firebase
-      await reloadTestSeries();
-      
+      await updateTestSeries(seriesToUpdate.id, { title: seriesTitle, description: seriesDescription, category: seriesCategory, status: seriesStatus });
+      await reloadTestSeries(true);
       setShowModal(false);
       alert("✅ Test series updated successfully!");
     } catch (error) {
       console.error("Error updating test series:", error);
       alert("❌ Error updating test series: " + error.message);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -170,18 +432,414 @@ export default function Admin() {
     try {
       const seriesToDelete = testSeries[idx];
       
+      // BACKUP: Save to localStorage before deleting (for recovery)
+      const backupKey = `deleted_series_${Date.now()}`;
+      const backup = {
+        data: seriesToDelete,
+        deletedAt: new Date().toISOString(),
+        deletedBy: "admin"
+      };
+      localStorage.setItem(backupKey, JSON.stringify(backup));
+      console.log("✅ Backup saved:", backupKey);
+      
       // Delete from Firebase
       console.log("Deleting test series from Firebase:", seriesToDelete.id);
       await deleteTestSeries(seriesToDelete.id);
       console.log("Test series deleted successfully");
 
       // Reload from Firebase
-      await reloadTestSeries();
+      await reloadTestSeries(true);
       
-      alert("✅ Test series deleted successfully!");
+      alert("✅ Test series deleted successfully!\n\n💾 Backup saved for recovery.");
     } catch (error) {
       console.error("Error deleting test series:", error);
       alert("❌ Error deleting test series: " + error.message);
+    }
+  };
+
+  // LEKHPAL RECOVERY: Direct Firestore recovery for Lekhpal/Constable test series
+  const handleRecoverLekhpalConstable = async () => {
+    try {
+      console.log("🔍 Searching for Lekhpal/Constable test series in Firestore...");
+      
+      // Search keywords
+      const keywords = ["lekhpal", "constable", "police", "लेखपाल", "कांस्टेबल"];
+      
+      let foundSeries = [];
+      
+      // Search through all test series
+      for (const series of testSeries) {
+        const title = (series.title || "").toLowerCase();
+        const description = (series.description || "").toLowerCase();
+        const category = (series.category || "").toLowerCase();
+        const status = series.status || "draft";
+        
+        // Check if any keyword matches
+        const hasKeyword = keywords.some(keyword => 
+          title.includes(keyword) || 
+          description.includes(keyword) || 
+          category.includes(keyword)
+        );
+        
+        if (hasKeyword) {
+          foundSeries.push({
+            series: series,
+            currentStatus: status,
+            matchedIn: []
+          });
+          
+          // Log what matched
+          keywords.forEach(keyword => {
+            if (title.includes(keyword)) foundSeries[foundSeries.length - 1].matchedIn.push(`Title: "${keyword}"`);
+            if (description.includes(keyword)) foundSeries[foundSeries.length - 1].matchedIn.push(`Description: "${keyword}"`);
+            if (category.includes(keyword)) foundSeries[foundSeries.length - 1].matchedIn.push(`Category: "${keyword}"`);
+          });
+        }
+      }
+      
+      console.log(`✅ Found ${foundSeries.length} matching test series`);
+      
+      if (foundSeries.length === 0) {
+        alert("❌ No Lekhpal/Constable test series found in database!\n\n🔍 Searched for: Lekhpal, Constable, Police, लेखपाल, कांस्टेबल\n\n💡 Make sure the test series exists in Firestore.");
+        return;
+      }
+      
+      // Show found series
+      let message = `🎯 Found ${foundSeries.length} test series:\n\n`;
+      foundSeries.forEach((item, idx) => {
+        message += `${idx + 1}. ${item.series.title}\n`;
+        message += `   Status: ${item.currentStatus}\n`;
+        message += `   Matched: ${item.matchedIn.join(", ")}\n\n`;
+      });
+      
+      message += `\n✅ Activate all these test series?`;
+      
+      if (!window.confirm(message)) {
+        return;
+      }
+      
+      // Activate all found series
+      let activatedCount = 0;
+      for (const item of foundSeries) {
+        if (item.currentStatus !== "active") {
+          console.log(`🔄 Activating: ${item.series.title}`);
+          await updateTestSeries(item.series.id, { status: "active" });
+          activatedCount++;
+        } else {
+          console.log(`✓ Already active: ${item.series.title}`);
+        }
+      }
+      
+      // Reload test series
+      await reloadTestSeries(true);
+      
+      alert(`✅ SUCCESS!\n\n${activatedCount} test series activated!\n${foundSeries.length - activatedCount} were already active.\n\n🎉 Refresh the page to see all test series!`);
+      
+    } catch (error) {
+      console.error("❌ Error recovering Lekhpal/Constable:", error);
+      alert("❌ Error: " + error.message);
+    }
+  };
+
+  // TEACHER PHOTO UPLOAD: Upload teacher photo to Firebase Storage
+  const handleTeacherPhotoUpload = async () => {
+    if (!teacherPhoto) {
+      alert("❌ Please select a photo first!");
+      return;
+    }
+
+    try {
+      setUploadingPhoto(true);
+      console.log("📤 Uploading teacher photo...");
+
+      // Create a reference to Firebase Storage
+      const photoRef = ref(storage, 'teacher/yogendra-photo.jpg');
+      
+      // Upload the file
+      await uploadBytes(photoRef, teacherPhoto);
+      console.log("✅ Photo uploaded successfully");
+      
+      // Get the download URL
+      const downloadURL = await getDownloadURL(photoRef);
+      console.log("✅ Photo URL:", downloadURL);
+      
+      setTeacherPhotoURL(downloadURL);
+      
+      // Save URL to localStorage for quick access
+      localStorage.setItem('teacherPhotoURL', downloadURL);
+      
+      alert(`✅ SUCCESS!\n\nTeacher photo uploaded successfully!\n\nPhoto URL: ${downloadURL}\n\n🎉 Photo will now appear on the home page!`);
+      
+      // Add notification
+      addNotification({
+        icon: "📸",
+        title: "Teacher Photo Uploaded!",
+        message: "Yogendra Pratap Singh's photo has been uploaded successfully.",
+        type: "success"
+      });
+      
+    } catch (error) {
+      console.error("❌ Error uploading photo:", error);
+      alert("❌ Error uploading photo: " + error.message);
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
+  // Load teacher photo URL on mount
+  useEffect(() => {
+    const savedURL = localStorage.getItem('teacherPhotoURL');
+    if (savedURL) {
+      setTeacherPhotoURL(savedURL);
+    }
+  }, []);
+
+  // RECOVERY: Recover deleted test series from backup
+  const handleRecoverDeletedSeries = async () => {
+    try {
+      // Get all backup keys from localStorage
+      const backupKeys = Object.keys(localStorage).filter(key => key.startsWith('deleted_series_'));
+      
+      console.log(`🔍 Found ${backupKeys.length} backups in localStorage`);
+      
+      if (backupKeys.length === 0) {
+        alert("❌ No deleted test series found in backup!\n\nNote: Backups are only available if test series was deleted using the delete button.");
+        return;
+      }
+      
+      // Show list of deleted series
+      let backupList = "📋 Deleted Test Series (Available for Recovery):\n\n";
+      const backups = [];
+      
+      backupKeys.forEach((key, index) => {
+        try {
+          const backup = JSON.parse(localStorage.getItem(key));
+          backups.push({ key, backup });
+          const deletedDate = new Date(backup.deletedAt).toLocaleString('en-IN');
+          backupList += `${index + 1}. ${backup.data.title}\n`;
+          backupList += `   Deleted: ${deletedDate}\n`;
+          backupList += `   Sections: ${backup.data.sections?.length || 0}\n\n`;
+          
+          console.log(`Backup ${index + 1}:`, backup.data.title);
+        } catch (e) {
+          console.error(`Error parsing backup ${key}:`, e);
+        }
+      });
+      
+      const selection = prompt(backupList + "\nEnter number to recover (or 'all' for all, 'cancel' to exit):");
+      
+      if (!selection || selection.toLowerCase() === 'cancel') {
+        return;
+      }
+      
+      // Recover all
+      if (selection.toLowerCase() === 'all') {
+        if (!window.confirm(`Recover ALL ${backups.length} test series?`)) {
+          return;
+        }
+        
+        let recovered = 0;
+        for (const { key, backup } of backups) {
+          try {
+            const seriesData = backup.data;
+            const { id: _unusedId, ...dataWithoutId } = seriesData;
+            
+            console.log(`🔄 Recovering: ${seriesData.title}`);
+            await createTestSeries(dataWithoutId);
+            localStorage.removeItem(key);
+            recovered++;
+          } catch (error) {
+            console.error(`Error recovering ${backup.data.title}:`, error);
+          }
+        }
+        
+        await reloadTestSeries(true);
+        alert(`✅ Success!\n\n${recovered} test series recovered!`);
+        return;
+      }
+      
+      // Recover single
+      const selectedIndex = parseInt(selection) - 1;
+      
+      if (selectedIndex < 0 || selectedIndex >= backups.length) {
+        alert("❌ Invalid selection!");
+        return;
+      }
+      
+      const selectedBackup = backups[selectedIndex];
+      const seriesData = selectedBackup.backup.data;
+      
+      // Remove the id field (Firebase will generate new one)
+      const { id: _unusedId, ...dataWithoutId } = seriesData;
+      
+      // Recreate in Firebase
+      console.log("🔄 Recovering test series:", seriesData.title);
+      const recovered = await createTestSeries(dataWithoutId);
+      console.log("✅ Test series recovered:", recovered.id);
+      
+      // Remove from backup
+      localStorage.removeItem(selectedBackup.key);
+      
+      // Reload test series
+      await reloadTestSeries(true);
+      
+      alert(`✅ Test series "${seriesData.title}" recovered successfully!\n\n🎉 You can now see it in the dashboard.`);
+      
+    } catch (error) {
+      console.error("Error recovering test series:", error);
+      alert("❌ Error recovering test series: " + error.message);
+    }
+  };
+
+  // CLEAR BACKUPS: Delete all backups from localStorage
+  const handleClearBackups = async () => {
+    try {
+      // Get all backup keys from localStorage
+      const backupKeys = Object.keys(localStorage).filter(key => key.startsWith('deleted_series_'));
+      
+      console.log(`🔍 Found ${backupKeys.length} backups in localStorage`);
+      
+      if (backupKeys.length === 0) {
+        alert("❌ No backups found!\n\nBackup storage is already empty.");
+        return;
+      }
+      
+      // Show list of backups
+      let backupList = "🗑️ Backups to be deleted:\n\n";
+      const backups = [];
+      
+      backupKeys.forEach((key, index) => {
+        try {
+          const backup = JSON.parse(localStorage.getItem(key));
+          backups.push({ key, backup });
+          const deletedDate = new Date(backup.deletedAt).toLocaleString('en-IN');
+          backupList += `${index + 1}. ${backup.data.title}\n`;
+          backupList += `   Deleted: ${deletedDate}\n`;
+          backupList += `   Sections: ${backup.data.sections?.length || 0}\n\n`;
+        } catch (e) {
+          console.error(`Error parsing backup ${key}:`, e);
+        }
+      });
+      
+      backupList += `\n⚠️ WARNING: This will PERMANENTLY delete all ${backups.length} backup(s)!\n`;
+      backupList += `You will NOT be able to recover these test series after clearing.\n\n`;
+      backupList += `Are you ABSOLUTELY SURE?`;
+      
+      if (!window.confirm(backupList)) {
+        return;
+      }
+      
+      // Double confirmation
+      const doubleConfirm = window.confirm(`⚠️ FINAL CONFIRMATION\n\nThis action CANNOT be undone!\n\nDelete ${backups.length} backup(s) permanently?`);
+      
+      if (!doubleConfirm) {
+        console.log("❌ Cancelled by user");
+        return;
+      }
+      
+      // Delete all backups
+      console.log("🗑️ Clearing all backups...");
+      let deletedCount = 0;
+      
+      backupKeys.forEach(key => {
+        localStorage.removeItem(key);
+        deletedCount++;
+        console.log(`✓ Deleted backup: ${key}`);
+      });
+      
+      console.log(`✅ All backups cleared: ${deletedCount} deleted`);
+      
+      alert(`✅ SUCCESS!\n\n${deletedCount} backup(s) permanently deleted from storage.\n\n💾 Backup storage is now empty.`);
+      
+    } catch (error) {
+      console.error("❌ Error clearing backups:", error);
+      alert("❌ Error clearing backups: " + error.message);
+    }
+  };
+
+  // RESTORE FROM LOCALSTORAGE: localStorage backup se data restore karo
+  const handleRestoreFromLocalStorage = async () => {
+    try {
+      const savedData = localStorage.getItem("testSeries");
+      if (!savedData) {
+        alert("❌ localStorage mein koi backup nahi mila!\n\nBrowser ne data save nahi kiya tha.");
+        return;
+      }
+
+      const parsed = JSON.parse(savedData);
+      if (!Array.isArray(parsed) || parsed.length === 0) {
+        alert("❌ localStorage backup empty hai!");
+        return;
+      }
+
+      let list = `📦 localStorage mein ${parsed.length} test series mili:\n\n`;
+      parsed.forEach((s, i) => {
+        const sectionCount = s.sections?.length || 0;
+        let questionCount = 0;
+        s.sections?.forEach(sec => sec.tests?.forEach(t => { questionCount += t.questions?.length || 0; }));
+        list += `${i + 1}. ${s.title}\n   Sections: ${sectionCount} | Questions: ${questionCount}\n\n`;
+      });
+
+      if (!window.confirm(list + "\nKya aap yeh data Firestore mein restore karna chahte hain?\n\n⚠️ Existing data overwrite nahi hoga — sirf nayi entries banegi.")) {
+        return;
+      }
+
+      let restoredCount = 0;
+      for (const series of parsed) {
+        try {
+          // Check karo ki yeh series already exist karti hai
+          const existingIds = testSeries.map(s => s.id);
+          if (existingIds.includes(series.id)) {
+            console.log(`⏭️ Already exists: ${series.title}`);
+            continue;
+          }
+
+          // Nayi series create karo (nested data ke saath — getAllTestSeries ab isko handle karega)
+          const { id: _id, ...seriesData } = series;
+          await createTestSeries({ ...seriesData, status: seriesData.status || 'active' });
+          restoredCount++;
+          console.log(`✅ Restored: ${series.title}`);
+        } catch (err) {
+          console.error(`❌ Failed to restore: ${series.title}`, err);
+        }
+      }
+
+      await reloadTestSeries(true);
+      alert(`✅ ${restoredCount} test series restore ho gayi!\n\n${parsed.length - restoredCount} already exist thi (skip ki gayi).`);
+    } catch (error) {
+      console.error("❌ Restore failed:", error);
+      alert("❌ Restore failed: " + error.message);
+    }
+  };
+
+  // Toggle Series Visibility with safety check
+  const handleToggleSeriesVisibility = async (idx) => {
+    try {
+      const seriesToUpdate = testSeries[idx];
+      const currentStatus = seriesToUpdate.status || "draft";
+      const newStatus = currentStatus === "active" ? "draft" : "active";
+      
+      // Confirmation dialog for safety
+      const action = newStatus === "active" ? "SHOW (make visible)" : "HIDE";
+      const confirmMsg = `${action} this test series?\n\n"${seriesToUpdate.title}"\n\nCurrent: ${currentStatus}\nNew: ${newStatus}`;
+      
+      if (!window.confirm(confirmMsg)) {
+        return;
+      }
+      
+      console.log(`🔄 Toggling visibility: ${seriesToUpdate.title}`);
+      console.log(`   From: ${currentStatus} → To: ${newStatus}`);
+      
+      await updateTestSeries(seriesToUpdate.id, { status: newStatus });
+      await reloadTestSeries(true);
+      
+      const statusText = newStatus === "active" ? "visible to users" : "hidden from users";
+      alert(`✅ Success!\n\n"${seriesToUpdate.title}"\nis now ${statusText}!`);
+      
+      console.log(`✅ Visibility toggled successfully`);
+    } catch (error) {
+      console.error("❌ Error toggling visibility:", error);
+      alert("❌ Error: " + error.message);
     }
   };
 
@@ -205,62 +863,42 @@ export default function Admin() {
   };
 
   const handleCreateSection = async () => {
-    if (!sectionTitle.trim()) {
-      alert("Please enter a section title");
-      return;
-    }
-
+    if (!sectionTitle.trim()) { alert("Please enter a section title"); return; }
+    if (saving) return;
+    setSaving(true);
     try {
-      const newSection = {
-        id: Date.now().toString(),
-        title: sectionTitle,
-        description: sectionDescription,
-        tests: [],
-        createdAt: new Date().toISOString()
-      };
-
-      const updated = [...testSeries];
-      updated[selectedSeriesIdx].sections = [...(updated[selectedSeriesIdx].sections || []), newSection];
-      
-      // Update in Firebase
-      await updateTestSeries(updated[selectedSeriesIdx].id, updated[selectedSeriesIdx]);
-      
-      // Reload from Firebase
-      await reloadTestSeries();
-      
+      const migrated = await ensureMigrated(currentSeries);
+      if (migrated) { setSaving(false); return; }
+      await createSection(currentSeries.id, { title: sectionTitle, description: sectionDescription, order: (currentSeries.sections?.length || 0), createdAt: new Date().toISOString() });
+      await reloadTestSeries(true);
       setShowModal(false);
       alert("✅ Section created successfully!");
     } catch (error) {
       console.error("Error creating section:", error);
       alert("❌ Error creating section: " + error.message);
+    } finally {
+      setSaving(false);
     }
   };
 
   const handleUpdateSection = async () => {
-    if (!sectionTitle.trim()) {
-      alert("Please enter a section title");
-      return;
-    }
-
+    if (!sectionTitle.trim()) { alert("Please enter a section title"); return; }
+    if (saving) return;
+    setSaving(true);
     try {
-      const updated = [...testSeries];
-      updated[selectedSeriesIdx].sections[editingIdx] = {
-        ...updated[selectedSeriesIdx].sections[editingIdx],
-        title: sectionTitle,
-        description: sectionDescription
-      };
-
-      // Update in Firebase
-      await updateTestSeries(updated[selectedSeriesIdx].id, updated[selectedSeriesIdx]);
-      
-      // Reload from Firebase
-      await reloadTestSeries();
-      
+      const migrated = await ensureMigrated(currentSeries);
+      if (migrated) { setSaving(false); return; }
+      const section = currentSeries.sections[editingIdx];
+      if (!section || !section.id) { alert("❌ Section ID nahi mila. Page refresh karo."); setSaving(false); return; }
+      await updateSection(currentSeries.id, section.id, { title: sectionTitle, description: sectionDescription });
+      await reloadTestSeries(true);
       setShowModal(false);
       alert("✅ Section updated successfully!");
     } catch (error) {
       console.error("Error updating section:", error);
       alert("❌ Error updating section: " + error.message);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -270,15 +908,13 @@ export default function Admin() {
     }
 
     try {
-      const updated = [...testSeries];
-      updated[selectedSeriesIdx].sections = updated[selectedSeriesIdx].sections.filter((_, i) => i !== idx);
-      
-      // Update in Firebase
-      await updateTestSeries(updated[selectedSeriesIdx].id, updated[selectedSeriesIdx]);
-      
-      // Reload from Firebase
-      await reloadTestSeries();
-      
+      const migrated = await ensureMigrated(currentSeries);
+      if (migrated) return;
+
+      const section = currentSeries.sections[idx];
+      // Subcollection se delete karo
+      await deleteSection(currentSeries.id, section.id);
+      await reloadTestSeries(true);
       alert("✅ Section deleted successfully!");
     } catch (error) {
       console.error("Error deleting section:", error);
@@ -314,91 +950,44 @@ export default function Admin() {
   };
 
   const handleCreateTest = async () => {
-    if (!testTitle.trim()) {
-      alert("Please enter a test title");
-      return;
-    }
-
+    if (!testTitle.trim()) { alert("Please enter a test title"); return; }
+    if (saving) return;
+    setSaving(true);
     try {
-      const newTest = {
-        id: Date.now().toString(),
-        title: testTitle,
-        duration: testDuration,
-        marksPerQuestion: testMarksPerQuestion,
-        negativeMarking: testNegativeMarking,
-        instructions: testInstructions,
-        status: testStatus,
-        questions: [],
-        createdAt: new Date().toISOString()
-      };
-
-      const updated = [...testSeries];
-      updated[selectedSeriesIdx].sections[selectedSectionIdx].tests = [
-        ...(updated[selectedSeriesIdx].sections[selectedSectionIdx].tests || []),
-        newTest
-      ];
-      
-      // Update in Firebase
-      await updateTestSeries(updated[selectedSeriesIdx].id, updated[selectedSeriesIdx]);
-      
-      // Reload from Firebase
-      await reloadTestSeries();
-      
+      const migrated = await ensureMigrated(currentSeries);
+      if (migrated) { setSaving(false); return; }
+      await createTest(currentSeries.id, currentSection.id, { title: testTitle, duration: testDuration, marksPerQuestion: testMarksPerQuestion, negativeMarking: testNegativeMarking, instructions: testInstructions, status: testStatus, order: (currentSection.tests?.length || 0), createdAt: new Date().toISOString() });
+      await reloadTestSeries(true);
       setShowModal(false);
-      
-      // Add notification
-      addNotification({
-        icon: "📝",
-        title: "New Test Created!",
-        message: `"${testTitle}" has been added to ${currentSection.title}.`,
-        type: "success"
-      });
-      
+      addNotification({ icon: "📝", title: "New Test Created!", message: `"${testTitle}" has been added to ${currentSection.title}.`, type: "success" });
       alert("✅ Test created successfully!");
     } catch (error) {
       console.error("Error creating test:", error);
       alert("❌ Error creating test: " + error.message);
+    } finally {
+      setSaving(false);
     }
   };
 
   const handleUpdateTest = async () => {
-    if (!testTitle.trim()) {
-      alert("Please enter a test title");
-      return;
-    }
-
+    if (!testTitle.trim()) { alert("Please enter a test title"); return; }
+    if (saving) return;
+    setSaving(true);
     try {
-      const updated = [...testSeries];
-      updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[editingIdx] = {
-        ...updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[editingIdx],
-        title: testTitle,
-        duration: testDuration,
-        marksPerQuestion: testMarksPerQuestion,
-        negativeMarking: testNegativeMarking,
-        instructions: testInstructions,
-        status: testStatus
-      };
-
-      // Update in Firebase
-      await updateTestSeries(updated[selectedSeriesIdx].id, updated[selectedSeriesIdx]);
-      
-      // Reload from Firebase
-      await reloadTestSeries();
-      
+      const migrated = await ensureMigrated(currentSeries);
+      if (migrated) { setSaving(false); return; }
+      const test = currentSection.tests[editingIdx];
+      if (!test || !test.id) { alert("❌ Test ID nahi mila. Pehle data migrate karo ya page refresh karo."); setSaving(false); return; }
+      await updateTest(currentSeries.id, currentSection.id, test.id, { title: testTitle, duration: testDuration, marksPerQuestion: testMarksPerQuestion, negativeMarking: testNegativeMarking, instructions: testInstructions, status: testStatus });
+      await reloadTestSeries(true);
       setShowModal(false);
-      
-      // Add notification
-      addNotification({
-        icon: "✏️",
-        title: "Test Updated!",
-        message: `"${testTitle}" has been updated successfully.`,
-        type: "info"
-      });
-      
+      addNotification({ icon: "✏️", title: "Test Updated!", message: `"${testTitle}" has been updated successfully.`, type: "info" });
       alert("✅ Test updated successfully!");
     } catch (error) {
       console.error("Error updating test:", error);
       alert("❌ Error updating test: " + error.message);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -408,20 +997,37 @@ export default function Admin() {
     }
 
     try {
-      const updated = [...testSeries];
-      updated[selectedSeriesIdx].sections[selectedSectionIdx].tests = 
-        updated[selectedSeriesIdx].sections[selectedSectionIdx].tests.filter((_, i) => i !== idx);
-      
-      // Update in Firebase
-      await updateTestSeries(updated[selectedSeriesIdx].id, updated[selectedSeriesIdx]);
-      
-      // Reload from Firebase
-      await reloadTestSeries();
-      
+      const migrated = await ensureMigrated(currentSeries);
+      if (migrated) return;
+
+      const test = currentSection.tests[idx];
+      // Subcollection se delete karo
+      await deleteTest(currentSeries.id, currentSection.id, test.id);
+      await reloadTestSeries(true);
       alert("✅ Test deleted successfully!");
     } catch (error) {
       console.error("Error deleting test:", error);
       alert("❌ Error deleting test: " + error.message);
+    }
+  };
+
+  // Toggle Test Visibility
+  const handleToggleTestVisibility = async (idx) => {
+    try {
+      const migrated = await ensureMigrated(currentSeries);
+      if (migrated) return;
+
+      const test = currentSection.tests[idx];
+      const newStatus = test.status === "active" ? "draft" : "active";
+      
+      await updateTest(currentSeries.id, currentSection.id, test.id, { status: newStatus });
+      await reloadTestSeries(true);
+      
+      const statusText = newStatus === "active" ? "visible" : "hidden";
+      alert(`✅ Test is now ${statusText}!`);
+    } catch (error) {
+      console.error("Error toggling visibility:", error);
+      alert("❌ Error: " + error.message);
     }
   };
 
@@ -430,6 +1036,7 @@ export default function Admin() {
   const openCreateQuestionModal = () => {
     setModalType("create-question");
     setQuestionText("");
+    setNumberOfOptions(4); // Default 4 options
     setOptions(["", "", "", ""]);
     setCorrectAnswer(0);
     setExplanation("");
@@ -442,6 +1049,7 @@ export default function Admin() {
     const question = currentTest.questions[idx];
     setModalType("edit-question");
     setQuestionText(question.question);
+    setNumberOfOptions(question.options.length); // Set based on existing question
     setOptions([...question.options]);
     setCorrectAnswer(question.answer);
     setExplanation(question.explanation || "");
@@ -450,80 +1058,73 @@ export default function Admin() {
     setShowModal(true);
   };
 
+  // Function to update number of options
+  const handleNumberOfOptionsChange = (newNumber) => {
+    const num = parseInt(newNumber);
+    if (num < 2 || num > 10) {
+      alert("❌ Number of options must be between 2 and 10!");
+      return;
+    }
+    
+    setNumberOfOptions(num);
+    
+    // Adjust options array
+    const newOptions = [...options];
+    if (num > options.length) {
+      // Add empty options
+      for (let i = options.length; i < num; i++) {
+        newOptions.push("");
+      }
+    } else if (num < options.length) {
+      // Remove extra options
+      newOptions.splice(num);
+    }
+    setOptions(newOptions);
+    
+    // Adjust correct answer if needed
+    if (correctAnswer >= num) {
+      setCorrectAnswer(0);
+    }
+  };
+
   const handleCreateQuestion = async () => {
-    if (!questionText.trim()) {
-      alert("Please enter a question");
-      return;
-    }
-
-    if (options.some(opt => !opt.trim())) {
-      alert("Please fill all 4 options");
-      return;
-    }
-
+    if (!questionText.trim()) { alert("Please enter a question"); return; }
+    if (options.some(opt => !opt.trim())) { alert(`Please fill all ${numberOfOptions} options`); return; }
+    if (saving) return;
+    setSaving(true);
     try {
-      const newQuestion = {
-        id: Date.now().toString(),
-        question: questionText,
-        options: [...options],
-        answer: correctAnswer,
-        explanation: explanation,
-        image: questionImage
-      };
-
-      const updated = [...testSeries];
-      updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[selectedTestIdx].questions = [
-        ...(updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[selectedTestIdx].questions || []),
-        newQuestion
-      ];
-      
-      // Update in Firebase
-      await updateTestSeries(updated[selectedSeriesIdx].id, updated[selectedSeriesIdx]);
-      
-      // Reload from Firebase
-      await reloadTestSeries();
-      
+      const migrated = await ensureMigrated(currentSeries);
+      if (migrated) { setSaving(false); return; }
+      await createQuestion(currentSeries.id, currentSection.id, currentTest.id, { question: questionText, options: [...options], answer: correctAnswer, explanation, image: questionImage, order: (currentTest.questions?.length || 0) });
+      await reloadTestSeries(true);
       setShowModal(false);
       alert("✅ Question added successfully!");
     } catch (error) {
       console.error("Error adding question:", error);
       alert("❌ Error adding question: " + error.message);
+    } finally {
+      setSaving(false);
     }
   };
 
   const handleUpdateQuestion = async () => {
-    if (!questionText.trim()) {
-      alert("Please enter a question");
-      return;
-    }
-
-    if (options.some(opt => !opt.trim())) {
-      alert("Please fill all 4 options");
-      return;
-    }
-
+    if (!questionText.trim()) { alert("Please enter a question"); return; }
+    if (options.some(opt => !opt.trim())) { alert(`Please fill all ${numberOfOptions} options`); return; }
+    if (saving) return;
+    setSaving(true);
     try {
-      const updated = [...testSeries];
-      updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[selectedTestIdx].questions[editingIdx] = {
-        ...updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[selectedTestIdx].questions[editingIdx],
-        question: questionText,
-        options: [...options],
-        answer: correctAnswer,
-        explanation: explanation,
-        image: questionImage
-      };
-
-      // Update in Firebase
-      await updateTestSeries(updated[selectedSeriesIdx].id, updated[selectedSeriesIdx]);
-      
-      // Reload from Firebase
-      await reloadTestSeries();
-      
+      const migrated = await ensureMigrated(currentSeries);
+      if (migrated) { setSaving(false); return; }
+      const question = currentTest.questions[editingIdx];
+      await updateQuestion(currentSeries.id, currentSection.id, currentTest.id, question.id, { question: questionText, options: [...options], answer: correctAnswer, explanation, image: questionImage });
+      await reloadTestSeries(true);
       setShowModal(false);
       alert("✅ Question updated successfully!");
     } catch (error) {
       console.error("Error updating question:", error);
       alert("❌ Error updating question: " + error.message);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -533,16 +1134,13 @@ export default function Admin() {
     }
 
     try {
-      const updated = [...testSeries];
-      updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[selectedTestIdx].questions = 
-        updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[selectedTestIdx].questions.filter((_, i) => i !== idx);
-      
-      // Update in Firebase
-      await updateTestSeries(updated[selectedSeriesIdx].id, updated[selectedSeriesIdx]);
-      
-      // Reload from Firebase
-      await reloadTestSeries();
-      
+      const migrated = await ensureMigrated(currentSeries);
+      if (migrated) return;
+
+      const question = currentTest.questions[idx];
+      // Subcollection se question delete karo
+      await deleteQuestion(currentSeries.id, currentSection.id, currentTest.id, question.id);
+      await reloadTestSeries(true);
       alert("✅ Question deleted successfully!");
     } catch (error) {
       console.error("Error deleting question:", error);
@@ -579,16 +1177,16 @@ export default function Admin() {
     }
 
     try {
-      const updated = [...testSeries];
-      updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[selectedTestIdx].questions = 
-        updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[selectedTestIdx].questions.filter((_, idx) => !selectedQuestions.includes(idx));
+      const migrated = await ensureMigrated(currentSeries);
+      if (migrated) return;
+
+      // Selected questions ko subcollection se delete karo
+      const questionsToDelete = selectedQuestions.map(idx => currentTest.questions[idx]);
+      await Promise.all(
+        questionsToDelete.map(q => deleteQuestion(currentSeries.id, currentSection.id, currentTest.id, q.id))
+      );
       
-      // Update in Firebase
-      await updateTestSeries(updated[selectedSeriesIdx].id, updated[selectedSeriesIdx]);
-      
-      // Reload from Firebase
-      await reloadTestSeries();
-      
+      await reloadTestSeries(true);
       setSelectedQuestions([]);
       setBulkDeleteMode(false);
       alert(`✅ ${selectedQuestions.length} question(s) deleted successfully!`);
@@ -650,6 +1248,17 @@ export default function Admin() {
 
     try {
       const parsed = JSON.parse(fixed);
+      // Preserve answer field as number
+      if (Array.isArray(parsed)) {
+        parsed.forEach(q => {
+          if (q.answer !== undefined && typeof q.answer === 'string') {
+            const num = parseInt(q.answer);
+            if (!isNaN(num)) {
+              q.answer = num;
+            }
+          }
+        });
+      }
       return { success: true, fixedJson: JSON.stringify(parsed, null, 2), fixes: [], totalFixes: 0, data: parsed };
     } catch {
       // Continue with fixes
@@ -769,6 +1378,19 @@ export default function Admin() {
 
     try {
       const parsed = JSON.parse(fixed);
+      
+      // Preserve answer field as number (don't let it become string)
+      if (Array.isArray(parsed)) {
+        parsed.forEach(q => {
+          if (q.answer !== undefined && typeof q.answer === 'string') {
+            const num = parseInt(q.answer);
+            if (!isNaN(num)) {
+              q.answer = num;
+            }
+          }
+        });
+      }
+      
       const formatted = JSON.stringify(parsed, null, 2);
       return { success: true, fixedJson: formatted, fixes, totalFixes: fixes.length, data: parsed };
     } catch (e) {
@@ -776,6 +1398,7 @@ export default function Admin() {
     }
   };
 
+  // Handle bulk upload
   // Handle bulk upload
   const handleBulkUpload = async () => {
     if (!bulkJsonInput || bulkJsonInput.trim() === '') {
@@ -824,7 +1447,7 @@ export default function Admin() {
       
       if (!q.options) errors.push(`Q${n}: Missing options`);
       else if (!Array.isArray(q.options)) errors.push(`Q${n}: Options must be array`);
-      else if (q.options.length !== 4) errors.push(`Q${n}: Must have 4 options`);
+      else if (q.options.length < 2 || q.options.length > 10) errors.push(`Q${n}: Must have 2-10 options (found ${q.options.length})`);
       else q.options.forEach((opt, idx) => {
         if (!opt || typeof opt !== 'string' || opt.trim() === '') {
           errors.push(`Q${n}: Option ${idx + 1} is empty`);
@@ -834,7 +1457,7 @@ export default function Admin() {
       if (q.answer === undefined || q.answer === null) errors.push(`Q${n}: Missing answer`);
       else if (typeof q.answer !== 'number') errors.push(`Q${n}: Answer must be number`);
       else if (!Number.isInteger(q.answer)) errors.push(`Q${n}: Answer must be integer`);
-      else if (q.answer < 0 || q.answer > 3) errors.push(`Q${n}: Answer must be 0-3`);
+      else if (q.options && (q.answer < 0 || q.answer >= q.options.length)) errors.push(`Q${n}: Answer must be 0-${q.options.length - 1} (for ${q.options.length} options)`);
       
       if (!q.explanation || q.explanation.trim() === '') warnings.push(`Q${n}: No explanation`);
     }
@@ -849,31 +1472,25 @@ export default function Admin() {
     }
 
     try {
-      // Import
-      const updated = [...testSeries];
-      const existing = updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[selectedTestIdx].questions || [];
-      
-      const newQuestions = questions.map(q => ({
-        id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+      const migrated = await ensureMigrated(currentSeries);
+      if (migrated) return;
+
+      // Subcollection mein bulk questions save karo
+      const newQuestions = questions.map((q, i) => ({
         question: q.question,
         options: q.options,
         answer: q.answer,
         explanation: q.explanation || '',
-        image: q.image || ''
+        image: q.image || '',
+        order: (currentTest.questions?.length || 0) + i
       }));
       
-      updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[selectedTestIdx].questions = [...existing, ...newQuestions];
-      
-      // Update in Firebase
-      await updateTestSeries(updated[selectedSeriesIdx].id, updated[selectedSeriesIdx]);
-      
-      // Reload from Firebase
-      await reloadTestSeries();
+      await bulkCreateQuestions(currentSeries.id, currentSection.id, currentTest.id, newQuestions);
+      await reloadTestSeries(true);
       
       setShowBulkUpload(false);
       setBulkJsonInput("");
       
-      // Add notification
       addNotification({
         icon: "📦",
         title: "Bulk Upload Successful!",
@@ -1046,19 +1663,16 @@ export default function Admin() {
         await new Promise(resolve => setTimeout(resolve, 50));
       }
 
-      // Add to current test
-      const updated = [...testSeries];
-      const existingQuestions = updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[selectedTestIdx].questions || [];
-      updated[selectedSeriesIdx].sections[selectedSectionIdx].tests[selectedTestIdx].questions = [
-        ...existingQuestions,
-        ...generatedQuestions
-      ];
-      
-      // Update in Firebase
-      await updateTestSeries(updated[selectedSeriesIdx].id, updated[selectedSeriesIdx]);
+      // AI generated questions ko subcollection mein save karo
+      const migrated = await ensureMigrated(currentSeries);
+      if (migrated) return;
+
+      await bulkCreateQuestions(currentSeries.id, currentSection.id, currentTest.id, 
+        generatedQuestions.map((q, i) => ({ ...q, order: (currentTest.questions?.length || 0) + i }))
+      );
       
       // Reload from Firebase
-      await reloadTestSeries();
+      await reloadTestSeries(true);
       
       setShowAiGenerator(false);
       
@@ -1099,6 +1713,52 @@ export default function Admin() {
     }
   };
 
+  // ==================== AI PDF CONVERTER ====================
+  
+  const handlePdfQuestionsGenerated = async (questions) => {
+    try {
+      // Validate questions
+      if (!Array.isArray(questions) || questions.length === 0) {
+        alert("❌ No questions found in PDF!");
+        return;
+      }
+
+      const migrated = await ensureMigrated(currentSeries);
+      if (migrated) return;
+
+      // PDF se extracted questions ko subcollection mein save karo
+      const pdfQuestions = questions.map((q, i) => ({
+        question: q.question,
+        options: q.options,
+        answer: q.answer,
+        explanation: q.explanation || '',
+        image: q.image || '',
+        order: (currentTest.questions?.length || 0) + i
+      }));
+      
+      await bulkCreateQuestions(currentSeries.id, currentSection.id, currentTest.id, pdfQuestions);
+      
+      // Reload from Firebase
+      await reloadTestSeries(true);
+      
+      // Close modal
+      setShowPdfConverter(false);
+      
+      // Add notification
+      addNotification({
+        icon: "🤖",
+        title: "PDF Converted Successfully!",
+        message: `${questions.length} questions extracted from PDF and added to test.`,
+        type: "success"
+      });
+      
+      alert(`✅ Successfully extracted ${questions.length} questions from PDF!\n\n📊 All questions have been added to the test.\n\n💡 Please review the questions to ensure accuracy.`);
+    } catch (error) {
+      console.error("Error adding PDF questions:", error);
+      alert("❌ Error adding questions: " + error.message);
+    }
+  };
+
   // ==================== NAVIGATION ====================
 
   const goToDashboard = () => {
@@ -1131,7 +1791,7 @@ export default function Admin() {
   return (
     <div style={{
       minHeight: "100vh",
-      background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+      background: "linear-gradient(135deg, #2563EB 0%, #3B82F6 100%)",
       padding: "20px"
     }}>
       <div style={{ maxWidth: "1400px", margin: "0 auto" }}>
@@ -1148,7 +1808,7 @@ export default function Admin() {
             margin: 0,
             fontSize: "2.5rem",
             fontWeight: "800",
-            background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+            background: "linear-gradient(135deg, #2563EB 0%, #3B82F6 100%)",
             WebkitBackgroundClip: "text",
             WebkitTextFillColor: "transparent"
           }}>
@@ -1175,7 +1835,7 @@ export default function Admin() {
             onClick={goToDashboard}
             style={{
               padding: "8px 16px",
-              background: currentView === "dashboard" ? "#667eea" : "#e2e8f0",
+              background: currentView === "dashboard" ? "#2563EB" : "#e2e8f0",
               color: currentView === "dashboard" ? "#fff" : "#64748b",
               border: "none",
               borderRadius: "8px",
@@ -1193,7 +1853,7 @@ export default function Admin() {
                 onClick={() => goToSections(selectedSeriesIdx)}
                 style={{
                   padding: "8px 16px",
-                  background: currentView === "sections" ? "#667eea" : "#e2e8f0",
+                  background: currentView === "sections" ? "#2563EB" : "#e2e8f0",
                   color: currentView === "sections" ? "#fff" : "#64748b",
                   border: "none",
                   borderRadius: "8px",
@@ -1213,7 +1873,7 @@ export default function Admin() {
                 onClick={() => goToTests(selectedSectionIdx)}
                 style={{
                   padding: "8px 16px",
-                  background: currentView === "tests" ? "#667eea" : "#e2e8f0",
+                  background: currentView === "tests" ? "#2563EB" : "#e2e8f0",
                   color: currentView === "tests" ? "#fff" : "#64748b",
                   border: "none",
                   borderRadius: "8px",
@@ -1231,7 +1891,7 @@ export default function Admin() {
               <span style={{ color: "#64748b" }}>→</span>
               <span style={{
                 padding: "8px 16px",
-                background: "#667eea",
+                background: "#2563EB",
                 color: "#fff",
                 borderRadius: "8px",
                 fontWeight: "600"
@@ -1254,26 +1914,362 @@ export default function Admin() {
           {/* DASHBOARD VIEW */}
           {currentView === "dashboard" && (
             <>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "25px" }}>
+              {/* Teacher Photo Upload Section */}
+              <div style={{
+                background: "linear-gradient(135deg, #ec4899 0%, #db2777 100%)",
+                borderRadius: "15px",
+                padding: "25px",
+                marginBottom: "25px",
+                color: "#fff",
+                boxShadow: "0 8px 25px rgba(236, 72, 153, 0.3)"
+              }}>
+                <h3 style={{ margin: "0 0 15px 0", fontSize: "1.5rem", fontWeight: "700" }}>
+                  📸 Teacher Photo Upload
+                </h3>
+                <p style={{ margin: "0 0 20px 0", fontSize: "0.95rem", opacity: 0.9 }}>
+                  Upload Yogendra Pratap Singh's photo for the home page (Max: 5MB, JPG/PNG)
+                </p>
+                
+                <div style={{ display: "flex", gap: "15px", alignItems: "center", flexWrap: "wrap" }}>
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/jpg,image/png"
+                    onChange={(e) => {
+                      const file = e.target.files[0];
+                      if (file) {
+                        // Check file size (5MB = 5 * 1024 * 1024 bytes)
+                        const maxSize = 5 * 1024 * 1024;
+                        if (file.size > maxSize) {
+                          alert("❌ File too large!\n\nMaximum size: 5MB\nYour file: " + (file.size / (1024 * 1024)).toFixed(2) + "MB\n\nPlease compress the image and try again.");
+                          e.target.value = "";
+                          return;
+                        }
+                        
+                        // Check file type
+                        if (!file.type.match(/image\/(jpeg|jpg|png)/)) {
+                          alert("❌ Invalid file type!\n\nOnly JPG and PNG images are allowed.");
+                          e.target.value = "";
+                          return;
+                        }
+                        
+                        setTeacherPhoto(file);
+                        console.log("✅ Photo selected:", file.name, "Size:", (file.size / 1024).toFixed(2) + "KB");
+                      }
+                    }}
+                    style={{
+                      padding: "10px",
+                      background: "#fff",
+                      color: "#1e293b",
+                      border: "2px solid #fff",
+                      borderRadius: "8px",
+                      fontSize: "0.95rem",
+                      cursor: "pointer"
+                    }}
+                  />
+                  
+                  <button
+                    onClick={handleTeacherPhotoUpload}
+                    disabled={!teacherPhoto || uploadingPhoto}
+                    style={{
+                      padding: "12px 24px",
+                      background: uploadingPhoto ? "#94a3b8" : "#fff",
+                      color: uploadingPhoto ? "#fff" : "#ec4899",
+                      border: "none",
+                      borderRadius: "8px",
+                      fontSize: "1rem",
+                      fontWeight: "700",
+                      cursor: uploadingPhoto ? "not-allowed" : "pointer",
+                      opacity: !teacherPhoto ? 0.5 : 1
+                    }}
+                  >
+                    {uploadingPhoto ? "⏳ Uploading..." : "📤 Upload Photo"}
+                  </button>
+                  
+                  {teacherPhotoURL && (
+                    <div style={{
+                      padding: "10px 20px",
+                      background: "rgba(255,255,255,0.2)",
+                      borderRadius: "8px",
+                      fontSize: "0.9rem"
+                    }}>
+                      ✅ Photo uploaded successfully!
+                    </div>
+                  )}
+                </div>
+                
+                {teacherPhotoURL && (
+                  <div style={{ marginTop: "15px" }}>
+                    <p style={{ margin: "0 0 10px 0", fontSize: "0.9rem" }}>Preview:</p>
+                    <img 
+                      src={teacherPhotoURL} 
+                      alt="Teacher Preview" 
+                      style={{
+                        width: "100px",
+                        height: "100px",
+                        borderRadius: "50%",
+                        objectFit: "cover",
+                        border: "3px solid #fff",
+                        boxShadow: "0 4px 15px rgba(0,0,0,0.2)"
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "25px", flexWrap: "wrap", gap: "15px" }}>
                 <h2 style={{ margin: 0, fontSize: "1.8rem", fontWeight: "700", color: "#1e293b" }}>
                   📋 All Test Series
                 </h2>
-                <button
-                  onClick={openCreateSeriesModal}
-                  style={{
-                    padding: "12px 24px",
-                    background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-                    color: "#fff",
-                    border: "none",
-                    borderRadius: "10px",
-                    fontSize: "1rem",
-                    fontWeight: "700",
-                    cursor: "pointer",
-                    boxShadow: "0 4px 15px rgba(102, 126, 234, 0.4)"
-                  }}
-                >
-                  ➕ Create Test Series
-                </button>
+                <div style={{ display: "flex", gap: "15px", flexWrap: "wrap" }}>
+                  <button
+                    onClick={async () => {
+                      try {
+                        console.log("📊 All Test Series in Database:");
+                        console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                        
+                        let list = "📋 All Test Series:\n\n";
+                        testSeries.forEach((series, idx) => {
+                          const status = series.status === "active" ? "✅ Active" : "📝 Draft";
+                          list += `${idx + 1}. ${series.title}\n`;
+                          list += `   Status: ${status}\n`;
+                          list += `   Description: ${series.description?.substring(0, 50)}...\n\n`;
+                          
+                          console.log(`${idx + 1}. ${series.title}`);
+                          console.log(`   ID: ${series.id}`);
+                          console.log(`   Status: ${series.status}`);
+                          console.log(`   Description: ${series.description}`);
+                          console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                        });
+                        
+                        alert(list + "\nCheck console (F12) for full details");
+                      } catch (error) {
+                        console.error("Error:", error);
+                        alert("Error: " + error.message);
+                      }
+                    }}
+                    style={{
+                      padding: "12px 24px",
+                      background: "linear-gradient(135deg, #06b6d4 0%, #0891b2 100%)",
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: "10px",
+                      fontSize: "1rem",
+                      fontWeight: "700",
+                      cursor: "pointer",
+                      boxShadow: "0 4px 15px rgba(6, 182, 212, 0.4)"
+                    }}
+                    title="Show all test series with details"
+                  >
+                    📊 Show All
+                  </button>
+                  <button
+                    onClick={async () => {
+                      const searchTerm = prompt("Enter test series name or keyword to search:\n(e.g., Lekhpal, UPSSSC, Police, etc.)");
+                      
+                      if (!searchTerm || searchTerm.trim() === "") {
+                        return;
+                      }
+                      
+                      try {
+                        console.log(`🔍 Searching for: "${searchTerm}"`);
+                        let found = [];
+                        
+                        testSeries.forEach((series, idx) => {
+                          const title = (series.title || "").toLowerCase();
+                          const description = (series.description || "").toLowerCase();
+                          const category = (series.category || "").toLowerCase();
+                          const search = searchTerm.toLowerCase();
+                          
+                          if (title.includes(search) || description.includes(search) || category.includes(search)) {
+                            found.push({ series, idx });
+                            console.log("✅ Found:", series.title);
+                            console.log("   Status:", series.status);
+                            console.log("   Description:", series.description);
+                          }
+                        });
+                        
+                        if (found.length === 0) {
+                          alert(`❌ No test series found with "${searchTerm}"\n\nTry:\n1. Different spelling\n2. Click "📊 Show All" to see all test series`);
+                          return;
+                        }
+                        
+                        let message = `Found ${found.length} test series:\n\n`;
+                        found.forEach((item, i) => {
+                          const status = item.series.status === "active" ? "✅ Active" : "📝 Draft";
+                          message += `${i + 1}. ${item.series.title}\n   Status: ${status}\n\n`;
+                        });
+                        
+                        if (found.length === 1) {
+                          const item = found[0];
+                          if (item.series.status !== "active") {
+                            const activate = window.confirm(message + `\nActivate "${item.series.title}"?`);
+                            if (activate) {
+                              await updateTestSeries(item.series.id, { status: "active" });
+                              await reloadTestSeries(true);
+                              alert(`✅ SUCCESS!\n\n"${item.series.title}" is now active and visible!`);
+                            }
+                          } else {
+                            alert(message + "\nAlready active!");
+                          }
+                        } else {
+                          const selection = prompt(message + "\nEnter number to activate (or cancel):");
+                          if (selection) {
+                            const idx = parseInt(selection) - 1;
+                            if (idx >= 0 && idx < found.length) {
+                              const item = found[idx];
+                              await updateTestSeries(item.series.id, { status: "active" });
+                              await reloadTestSeries(true);
+                              alert(`✅ SUCCESS!\n\n"${item.series.title}" is now active!`);
+                            }
+                          }
+                        }
+                      } catch (error) {
+                        console.error("Error:", error);
+                        alert("❌ Error: " + error.message);
+                      }
+                    }}
+                    style={{
+                      padding: "12px 24px",
+                      background: "linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)",
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: "10px",
+                      fontSize: "1rem",
+                      fontWeight: "700",
+                      cursor: "pointer",
+                      boxShadow: "0 4px 15px rgba(139, 92, 246, 0.4)"
+                    }}
+                    title="Search test series by name, description, or category"
+                  >
+                    🔍 Smart Search
+                  </button>
+                  <button
+                    onClick={handleRecoverDeletedSeries}
+                    style={{
+                      padding: "12px 24px",
+                      background: "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)",
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: "10px",
+                      fontSize: "1rem",
+                      fontWeight: "700",
+                      cursor: "pointer",
+                      boxShadow: "0 4px 15px rgba(245, 158, 11, 0.4)"
+                    }}
+                    title="Recover deleted test series from backup"
+                  >
+                    🔄 Recover Deleted
+                  </button>
+                  <button
+                    onClick={handleRestoreFromLocalStorage}
+                    style={{
+                      padding: "12px 24px",
+                      background: "linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)",
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: "10px",
+                      fontSize: "1rem",
+                      fontWeight: "700",
+                      cursor: "pointer",
+                      boxShadow: "0 4px 15px rgba(14, 165, 233, 0.4)"
+                    }}
+                    title="localStorage backup se data restore karo"
+                  >
+                    💾 Restore from Backup
+                  </button>
+                  <button
+                    onClick={handleClearBackups}
+                    style={{
+                      padding: "12px 24px",
+                      background: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)",
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: "10px",
+                      fontSize: "1rem",
+                      fontWeight: "700",
+                      cursor: "pointer",
+                      boxShadow: "0 4px 15px rgba(239, 68, 68, 0.4)"
+                    }}
+                    title="Permanently delete all backups from storage"
+                  >
+                    🗑️ Clear Backups
+                  </button>
+                  <button
+                    onClick={handleRecoverLekhpalConstable}
+                    style={{
+                      padding: "12px 24px",
+                      background: "linear-gradient(135deg, #ec4899 0%, #db2777 100%)",
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: "10px",
+                      fontSize: "1rem",
+                      fontWeight: "700",
+                      cursor: "pointer",
+                      boxShadow: "0 4px 15px rgba(236, 72, 153, 0.4)"
+                    }}
+                    title="Recover Lekhpal/Constable test series from Firestore"
+                  >
+                    🚀 Recover Lekhpal/Constable
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (!window.confirm("Are you sure you want to make ALL test series visible to users?")) {
+                        return;
+                      }
+                      
+                      try {
+                        let updatedCount = 0;
+                        
+                        // Loop through all test series and make them active
+                        for (let i = 0; i < testSeries.length; i++) {
+                          const series = testSeries[i];
+                          if (series.status !== "active") {
+                            await updateTestSeries(series.id, { status: "active" });
+                            updatedCount++;
+                          }
+                        }
+                        
+                        // Reload test series
+                        await reloadTestSeries(true);
+                        
+                        alert(`✅ Success! ${updatedCount} test series made visible to users!`);
+                      } catch (error) {
+                        console.error("Error unhiding test series:", error);
+                        alert("❌ Error: " + error.message);
+                      }
+                    }}
+                    style={{
+                      padding: "12px 24px",
+                      background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: "10px",
+                      fontSize: "1rem",
+                      fontWeight: "700",
+                      cursor: "pointer",
+                      boxShadow: "0 4px 15px rgba(16, 185, 129, 0.4)"
+                    }}
+                    title="Make all hidden test series visible to users"
+                  >
+                    👁️ Unhide All
+                  </button>
+                  <button
+                    onClick={openCreateSeriesModal}
+                    style={{
+                      padding: "12px 24px",
+                      background: "linear-gradient(135deg, #2563EB 0%, #3B82F6 100%)",
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: "10px",
+                      fontSize: "1rem",
+                      fontWeight: "700",
+                      cursor: "pointer",
+                      boxShadow: "0 4px 15px rgba(102, 126, 234, 0.4)"
+                    }}
+                  >
+                    ➕ Create Test Series
+                  </button>
+                </div>
               </div>
 
               {testSeries.length === 0 ? (
@@ -1329,7 +2325,7 @@ export default function Admin() {
                           display: "inline-block",
                           padding: "4px 12px",
                           background: "#e0e7ff",
-                          color: "#667eea",
+                          color: "#2563EB",
                           borderRadius: "20px",
                           fontSize: "0.85rem",
                           fontWeight: "600",
@@ -1354,7 +2350,7 @@ export default function Admin() {
                           style={{
                             flex: 1,
                             padding: "10px",
-                            background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                            background: "linear-gradient(135deg, #2563EB 0%, #3B82F6 100%)",
                             color: "#fff",
                             border: "none",
                             borderRadius: "8px",
@@ -1364,6 +2360,21 @@ export default function Admin() {
                           }}
                         >
                           Manage →
+                        </button>
+                        <button
+                          onClick={() => handleToggleSeriesVisibility(idx)}
+                          style={{
+                            padding: "10px 15px",
+                            background: series.status === "active" ? "#f59e0b" : "#10b981",
+                            color: "#fff",
+                            border: "none",
+                            borderRadius: "8px",
+                            fontWeight: "600",
+                            cursor: "pointer"
+                          }}
+                          title={series.status === "active" ? "Hide from users" : "Show to users"}
+                        >
+                          {series.status === "active" ? "👁️" : "🚫"}
                         </button>
                         <button
                           onClick={() => openEditSeriesModal(idx)}
@@ -1401,6 +2412,117 @@ export default function Admin() {
             </>
           )}
 
+          {/* STUDY MATERIAL SECTION — dashboard ke andar */}
+          {currentView === "dashboard" && (
+            <div style={{ marginTop: "40px" }}>
+              <div style={{
+                background: "linear-gradient(135deg, #7c3aed 0%, #a855f7 100%)",
+                borderRadius: "15px", padding: "25px", marginBottom: "20px", color: "#fff"
+              }}>
+                <h2 style={{ margin: "0 0 5px 0", fontSize: "1.6rem", fontWeight: "800" }}>📚 Study Material</h2>
+                <p style={{ margin: 0, opacity: 0.9 }}>Video Lectures aur Notes manage karo</p>
+              </div>
+
+              {/* Study Material nav */}
+              {studyView === "list" && (
+                <>
+                  <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "15px" }}>
+                    <button onClick={() => openStudyModal("mat")} style={{ padding: "10px 22px", background: "linear-gradient(135deg, #7c3aed 0%, #a855f7 100%)", color: "#fff", border: "none", borderRadius: "10px", fontWeight: "700", cursor: "pointer" }}>
+                      ➕ Add Category
+                    </button>
+                  </div>
+                  {studyMaterials.length === 0 ? (
+                    <div style={{ textAlign: "center", padding: "40px", color: "#64748b", background: "#f8fafc", borderRadius: "12px" }}>
+                      📭 Koi study material nahi hai. "Add Category" se shuru karo.
+                    </div>
+                  ) : (
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "15px" }}>
+                      {studyMaterials.map((mat, idx) => (
+                        <div key={mat.id} style={{ background: "#f8fafc", borderRadius: "12px", padding: "20px", border: "2px solid #e2e8f0" }}>
+                          <h3 style={{ margin: "0 0 6px 0", color: "#1e293b" }}>{mat.title}</h3>
+                          <p style={{ margin: "0 0 15px 0", color: "#64748b", fontSize: "0.9rem" }}>{mat.description || "No description"}</p>
+                          <p style={{ margin: "0 0 15px 0", color: "#7c3aed", fontSize: "0.85rem", fontWeight: "600" }}>
+                            📂 {mat.sections?.length || 0} Sections
+                          </p>
+                          <div style={{ display: "flex", gap: "8px" }}>
+                            <button onClick={() => { setSelectedStudyMatIdx(idx); setStudyView("sections"); }} style={{ flex: 1, padding: "8px", background: "#7c3aed", color: "#fff", border: "none", borderRadius: "8px", fontWeight: "600", cursor: "pointer" }}>Manage →</button>
+                            <button onClick={() => openStudyModal("mat", idx)} style={{ padding: "8px 12px", background: "#3b82f6", color: "#fff", border: "none", borderRadius: "8px", cursor: "pointer" }}>✏️</button>
+                            <button onClick={() => handleStudyDelete("mat", idx)} style={{ padding: "8px 12px", background: "#ef4444", color: "#fff", border: "none", borderRadius: "8px", cursor: "pointer" }}>🗑️</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Sections view */}
+              {studyView === "sections" && currentStudyMat && (
+                <>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "15px", flexWrap: "wrap", gap: "10px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                      <button onClick={() => { setStudyView("list"); setSelectedStudyMatIdx(null); }} style={{ padding: "8px 16px", background: "#e2e8f0", color: "#1e293b", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "600" }}>← Back</button>
+                      <h3 style={{ margin: 0, color: "#1e293b" }}>📂 {currentStudyMat.title} — Sections</h3>
+                    </div>
+                    <button onClick={() => openStudyModal("section")} style={{ padding: "10px 20px", background: "#7c3aed", color: "#fff", border: "none", borderRadius: "10px", fontWeight: "700", cursor: "pointer" }}>➕ Add Section</button>
+                  </div>
+                  {(currentStudyMat.sections || []).length === 0 ? (
+                    <div style={{ textAlign: "center", padding: "40px", color: "#64748b", background: "#f8fafc", borderRadius: "12px" }}>📭 Koi section nahi. "Add Section" se shuru karo.</div>
+                  ) : (
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "12px" }}>
+                      {currentStudyMat.sections.map((sec, idx) => (
+                        <div key={sec.id} style={{ background: "#f8fafc", borderRadius: "12px", padding: "18px", border: "2px solid #e2e8f0" }}>
+                          <h4 style={{ margin: "0 0 8px 0", color: "#1e293b" }}>{sec.title}</h4>
+                          <p style={{ margin: "0 0 12px 0", color: "#7c3aed", fontSize: "0.85rem" }}>📄 {sec.items?.length || 0} Items</p>
+                          <div style={{ display: "flex", gap: "8px" }}>
+                            <button onClick={() => { setSelectedStudySectionIdx(idx); setStudyView("items"); }} style={{ flex: 1, padding: "8px", background: "#7c3aed", color: "#fff", border: "none", borderRadius: "8px", fontWeight: "600", cursor: "pointer" }}>Items →</button>
+                            <button onClick={() => openStudyModal("section", idx)} style={{ padding: "8px 12px", background: "#3b82f6", color: "#fff", border: "none", borderRadius: "8px", cursor: "pointer" }}>✏️</button>
+                            <button onClick={() => handleStudyDelete("section", idx)} style={{ padding: "8px 12px", background: "#ef4444", color: "#fff", border: "none", borderRadius: "8px", cursor: "pointer" }}>🗑️</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Items view */}
+              {studyView === "items" && currentStudySection && (
+                <>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "15px", flexWrap: "wrap", gap: "10px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                      <button onClick={() => { setStudyView("sections"); setSelectedStudySectionIdx(null); }} style={{ padding: "8px 16px", background: "#e2e8f0", color: "#1e293b", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "600" }}>← Back</button>
+                      <h3 style={{ margin: 0, color: "#1e293b" }}>📄 {currentStudySection.title} — Items</h3>
+                    </div>
+                    <button onClick={() => openStudyModal("item")} style={{ padding: "10px 20px", background: "#7c3aed", color: "#fff", border: "none", borderRadius: "10px", fontWeight: "700", cursor: "pointer" }}>➕ Add Item</button>
+                  </div>
+                  {(currentStudySection.items || []).length === 0 ? (
+                    <div style={{ textAlign: "center", padding: "40px", color: "#64748b", background: "#f8fafc", borderRadius: "12px" }}>📭 Koi item nahi. "Add Item" se shuru karo.</div>
+                  ) : (
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "12px" }}>
+                      {currentStudySection.items.map((item, idx) => (
+                        <div key={item.id} style={{ background: "#f8fafc", borderRadius: "12px", padding: "18px", border: "2px solid #e2e8f0" }}>
+                          <div style={{ display: "flex", gap: "8px", alignItems: "center", marginBottom: "6px" }}>
+                            <span>{item.type === "video" ? "▶️" : "📄"}</span>
+                            <h4 style={{ margin: 0, color: "#1e293b", fontSize: "1rem" }}>{item.title}</h4>
+                          </div>
+                          <p style={{ margin: "0 0 6px 0", color: "#64748b", fontSize: "0.85rem" }}>{item.description}</p>
+                          <p style={{ margin: "0 0 12px 0", color: "#7c3aed", fontSize: "0.8rem", fontWeight: "600" }}>
+                            {item.type === "video" ? "🎬 Video" : "📄 Notes"}
+                          </p>
+                          <div style={{ display: "flex", gap: "8px" }}>
+                            <button onClick={() => openStudyModal("item", idx)} style={{ flex: 1, padding: "8px", background: "#3b82f6", color: "#fff", border: "none", borderRadius: "8px", cursor: "pointer" }}>✏️ Edit</button>
+                            <button onClick={() => handleStudyDelete("item", idx)} style={{ padding: "8px 12px", background: "#ef4444", color: "#fff", border: "none", borderRadius: "8px", cursor: "pointer" }}>🗑️</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
           {/* SECTIONS VIEW */}
           {currentView === "sections" && currentSeries && (
             <>
@@ -1412,7 +2534,7 @@ export default function Admin() {
                   onClick={openCreateSectionModal}
                   style={{
                     padding: "12px 24px",
-                    background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                    background: "linear-gradient(135deg, #2563EB 0%, #3B82F6 100%)",
                     color: "#fff",
                     border: "none",
                     borderRadius: "10px",
@@ -1475,7 +2597,7 @@ export default function Admin() {
                           style={{
                             flex: 1,
                             padding: "10px",
-                            background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                            background: "linear-gradient(135deg, #2563EB 0%, #3B82F6 100%)",
                             color: "#fff",
                             border: "none",
                             borderRadius: "8px",
@@ -1533,7 +2655,7 @@ export default function Admin() {
                   onClick={openCreateTestModal}
                   style={{
                     padding: "12px 24px",
-                    background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                    background: "linear-gradient(135deg, #2563EB 0%, #3B82F6 100%)",
                     color: "#fff",
                     border: "none",
                     borderRadius: "10px",
@@ -1616,7 +2738,7 @@ export default function Admin() {
                           style={{
                             flex: 1,
                             padding: "10px",
-                            background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                            background: "linear-gradient(135deg, #2563EB 0%, #3B82F6 100%)",
                             color: "#fff",
                             border: "none",
                             borderRadius: "8px",
@@ -1626,6 +2748,37 @@ export default function Admin() {
                           }}
                         >
                           Manage Questions →
+                        </button>
+                        <button
+                          onClick={() => openLiveModal(idx)}
+                          style={{
+                            padding: "10px 15px",
+                            background: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)",
+                            color: "#fff",
+                            border: "none",
+                            borderRadius: "8px",
+                            fontWeight: "700",
+                            cursor: "pointer",
+                            fontSize: "0.85rem"
+                          }}
+                          title="Test ko live schedule karo"
+                        >
+                          🔴 Live
+                        </button>
+                        <button
+                          onClick={() => handleToggleTestVisibility(idx)}
+                          style={{
+                            padding: "10px 15px",
+                            background: test.status === "active" ? "#f59e0b" : "#10b981",
+                            color: "#fff",
+                            border: "none",
+                            borderRadius: "8px",
+                            fontWeight: "600",
+                            cursor: "pointer"
+                          }}
+                          title={test.status === "active" ? "Hide from users" : "Show to users"}
+                        >
+                          {test.status === "active" ? "👁️" : "🚫"}
                         </button>
                         <button
                           onClick={() => openEditTestModal(idx)}
@@ -1677,7 +2830,7 @@ export default function Admin() {
                         onClick={openCreateQuestionModal}
                         style={{
                           padding: "12px 24px",
-                          background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                          background: "linear-gradient(135deg, #2563EB 0%, #3B82F6 100%)",
                           color: "#fff",
                           border: "none",
                           borderRadius: "10px",
@@ -1704,6 +2857,22 @@ export default function Admin() {
                         }}
                       >
                         📦 Bulk Upload (JSON)
+                      </button>
+                      <button
+                        onClick={() => setShowPdfConverter(true)}
+                        style={{
+                          padding: "12px 24px",
+                          background: "linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)",
+                          color: "#fff",
+                          border: "none",
+                          borderRadius: "10px",
+                          fontSize: "1rem",
+                          fontWeight: "700",
+                          cursor: "pointer",
+                          boxShadow: "0 4px 15px rgba(139, 92, 246, 0.4)"
+                        }}
+                      >
+                        🤖 AI PDF to Questions
                       </button>
                       <button
                         onClick={() => setShowAiGenerator(true)}
@@ -1800,6 +2969,245 @@ export default function Admin() {
                 </div>
               </div>
 
+              {/* Text to JSON Converter */}
+              <div style={{
+                background: "#fff",
+                borderRadius: "15px",
+                padding: "30px",
+                boxShadow: "0 4px 15px rgba(0,0,0,0.1)",
+                marginBottom: "30px"
+              }}>
+                <h3 style={{ margin: "0 0 15px 0", fontSize: "1.5rem", color: "#1e293b" }}>
+                  📝 Text to JSON Converter
+                </h3>
+                
+                {!showTextConverter ? (
+                  <button
+                    onClick={() => setShowTextConverter(true)}
+                    style={{
+                      padding: "12px 24px",
+                      background: "linear-gradient(135deg, #2563EB 0%, #3B82F6 100%)",
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: "10px",
+                      fontSize: "1rem",
+                      fontWeight: "600",
+                      cursor: "pointer"
+                    }}
+                  >
+                    📝 Open Text Converter
+                  </button>
+                ) : (
+                  <div>
+                    <textarea
+                      value={converterText}
+                      onChange={(e) => setConverterText(e.target.value)}
+                      placeholder={`Q1. What is the capital of India?
+A) Mumbai
+B) Delhi
+C) Kolkata
+D) Chennai
+Answer: B
+
+Q2. What is 2+2?
+A) 1
+B) 2
+C) 3
+D) 4
+Answer: D`}
+                      style={{
+                        width: "100%",
+                        minHeight: "250px",
+                        padding: "15px",
+                        border: "2px solid #e2e8f0",
+                        borderRadius: "10px",
+                        fontSize: "1rem",
+                        fontFamily: "monospace",
+                        marginBottom: "15px"
+                      }}
+                    />
+                    
+                    <div style={{
+                      background: "#fef3c7",
+                      padding: "12px",
+                      borderRadius: "8px",
+                      marginBottom: "15px",
+                      fontSize: "0.9rem",
+                      color: "#92400e"
+                    }}>
+                      Format: Q1. Question? | A) Option | B) Option | C) Option | D) Option | Answer: B
+                    </div>
+                    
+                    <div style={{ display: "flex", gap: "10px" }}>
+                      <button
+                        onClick={async () => {
+                          if (!converterText.trim()) {
+                            alert('Please enter text!');
+                            return;
+                          }
+                          
+                          try {
+                            const lines = converterText.split('\n').filter(l => l.trim());
+                            const questions = [];
+                            let current = null;
+                            
+                            console.log('🔍 Starting conversion...');
+                            
+                            for (const line of lines) {
+                              const trimmed = line.trim();
+                              
+                              // New question
+                              if (trimmed.match(/^(Q\d+\.|Question\s*\d+\.?|\d+\.)/i)) {
+                                if (current?.question) {
+                                  console.log('✅ Completed question:', {
+                                    q: current.question.substring(0, 30),
+                                    options: current.options.length,
+                                    answer: current.answer,
+                                    answerLetter: String.fromCharCode(65 + current.answer)
+                                  });
+                                  questions.push(current);
+                                }
+                                current = {
+                                  id: Date.now() + Math.random(),
+                                  question: trimmed.replace(/^(Q\d+\.|Question\s*\d+\.?|\d+\.)/i, '').trim(),
+                                  options: [],
+                                  answer: 0,
+                                  explanation: ""
+                                };
+                                console.log('🆕 New question:', current.question.substring(0, 30));
+                              }
+                              // Options
+                              else if (trimmed.match(/^[A-D][).]/i) && current) {
+                                current.options.push(trimmed.replace(/^[A-D][).]/i, '').trim());
+                                console.log(`  ➕ Option ${current.options.length}: ${trimmed.substring(0, 20)}`);
+                              }
+                              // Answer
+                              else if (trimmed.toLowerCase().includes('answer') && current) {
+                                // Extract letter AFTER "answer:" or "answer"
+                                const answerPart = trimmed.toLowerCase().split('answer')[1];
+                                if (answerPart) {
+                                  const match = answerPart.match(/[A-D]/i);
+                                  if (match) {
+                                    const letter = match[0].toUpperCase();
+                                    current.answer = letter.charCodeAt(0) - 65;
+                                    console.log(`  ✓ ANSWER SET: ${letter} = index ${current.answer}`);
+                                  }
+                                }
+                              }
+                              // Explanation
+                              else if (trimmed.match(/^Explanation/i) && current) {
+                                current.explanation = trimmed.replace(/^Explanation\s*:?/i, '').trim();
+                              }
+                            }
+                            
+                            if (current?.question) {
+                              console.log('✅ Completed last question:', {
+                                q: current.question.substring(0, 30),
+                                options: current.options.length,
+                                answer: current.answer,
+                                answerLetter: String.fromCharCode(65 + current.answer)
+                              });
+                              questions.push(current);
+                            }
+                            
+                            console.log('📊 Total parsed:', questions.length);
+                            console.table(questions.map((q, i) => ({
+                              '#': i + 1,
+                              Question: q.question.substring(0, 30),
+                              Options: q.options.length,
+                              AnswerIndex: q.answer,
+                              AnswerLetter: String.fromCharCode(65 + q.answer)
+                            })));
+                            
+                            const valid = questions.filter(q => 
+                              q.question && q.options.length === 4 && q.answer >= 0 && q.answer <= 3
+                            );
+                            
+                            console.log('✅ Valid questions:', valid.length);
+                            
+                            if (valid.length === 0) {
+                              alert('No valid questions found!');
+                              return;
+                            }
+                            
+                            // Show preview before saving
+                            const preview = valid.map((q, i) => 
+                              `Q${i+1}. ${q.question.substring(0, 40)}...\nAnswer: ${String.fromCharCode(65 + q.answer)} (index: ${q.answer})`
+                            ).join('\n\n');
+                            
+                            if (!confirm(`Found ${valid.length} questions:\n\n${preview}\n\nAdd these questions?`)) {
+                              return;
+                            }
+                            
+                            console.log('💾 Saving to Firebase...');
+                            console.log('Questions to save:', JSON.stringify(valid.map(q => ({
+                              question: q.question.substring(0, 20),
+                              answer: q.answer
+                            })), null, 2));
+                            
+                            // Text converter questions ko subcollection mein save karo
+                            const textQuestions = valid.map((q, i) => ({
+                              ...q,
+                              order: (currentTest.questions?.length || 0) + i
+                            }));
+                            
+                            console.log('📤 Sending to Firebase...');
+                            await bulkCreateQuestions(currentSeries.id, currentSection.id, currentTest.id, textQuestions);
+                            
+                            console.log('🔄 Reloading...');
+                            await reloadTestSeries(true);
+                            
+                            console.log('✅ Done!');
+                            
+                            addNotification({
+                              icon: "✅",
+                              title: "Questions Added!",
+                              message: `${valid.length} question(s) added successfully.`,
+                              type: "success"
+                            });
+                            
+                            setConverterText("");
+                            setShowTextConverter(false);
+                          } catch (error) {
+                            console.error('❌ Conversion error:', error);
+                            alert('Error converting text. Check console.');
+                          }
+                        }}
+                        style={{
+                          flex: 1,
+                          padding: "12px",
+                          background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                          color: "#fff",
+                          border: "none",
+                          borderRadius: "8px",
+                          fontWeight: "600",
+                          cursor: "pointer"
+                        }}
+                      >
+                        ✅ Convert & Add
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowTextConverter(false);
+                          setConverterText("");
+                        }}
+                        style={{
+                          padding: "12px 24px",
+                          background: "#e2e8f0",
+                          color: "#64748b",
+                          border: "none",
+                          borderRadius: "8px",
+                          fontWeight: "600",
+                          cursor: "pointer"
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {(!currentTest.questions || currentTest.questions.length === 0) ? (
                 <div style={{ textAlign: "center", padding: "60px 20px", color: "#64748b" }}>
                   <div style={{ fontSize: "4rem", marginBottom: "20px" }}>❓</div>
@@ -1819,7 +3227,7 @@ export default function Admin() {
                         background: "#f8fafc",
                         borderRadius: "15px",
                         padding: "25px",
-                        border: bulkDeleteMode && selectedQuestions.includes(idx) ? "3px solid #667eea" : "2px solid #e2e8f0",
+                        border: bulkDeleteMode && selectedQuestions.includes(idx) ? "3px solid #2563EB" : "2px solid #e2e8f0",
                         position: "relative"
                       }}
                     >
@@ -1838,19 +3246,20 @@ export default function Admin() {
                               width: "24px",
                               height: "24px",
                               cursor: "pointer",
-                              accentColor: "#667eea"
+                              accentColor: "#2563EB"
                             }}
                           />
                         </div>
                       )}
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: "15px", marginLeft: bulkDeleteMode ? "40px" : "0" }}>
                         <div style={{ flex: 1 }}>
-                          <div style={{ fontWeight: "700", color: "#667eea", marginBottom: "10px" }}>
+                          <div style={{ fontWeight: "700", color: "#2563EB", marginBottom: "10px" }}>
                             Q{idx + 1}.
                           </div>
-                          <div style={{ fontSize: "1.1rem", fontWeight: "600", color: "#1e293b", marginBottom: "15px" }}>
-                            {question.question}
-                          </div>
+                          <div 
+                            style={{ fontSize: "1.1rem", fontWeight: "600", color: "#1e293b", marginBottom: "15px" }}
+                            dangerouslySetInnerHTML={{ __html: question.question }}
+                          />
 
                           {question.image && (
                             <div style={{ marginBottom: "15px" }}>
@@ -1901,7 +3310,7 @@ export default function Admin() {
                               fontSize: "0.9rem",
                               color: "#92400e"
                             }}>
-                              <strong>💡 Explanation:</strong> {question.explanation}
+                              <strong>💡 Explanation:</strong> <span dangerouslySetInnerHTML={{ __html: question.explanation }} />
                             </div>
                           )}
                         </div>
@@ -2063,19 +3472,20 @@ export default function Admin() {
             <div style={{ display: "flex", gap: "15px" }}>
               <button
                 onClick={modalType === "create-series" ? handleCreateSeries : handleUpdateSeries}
+                disabled={saving}
                 style={{
                   flex: 1,
                   padding: "15px",
-                  background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                  background: saving ? "#94a3b8" : "linear-gradient(135deg, #2563EB 0%, #3B82F6 100%)",
                   color: "#fff",
                   border: "none",
                   borderRadius: "10px",
                   fontSize: "1.1rem",
                   fontWeight: "700",
-                  cursor: "pointer"
+                  cursor: saving ? "not-allowed" : "pointer"
                 }}
               >
-                {modalType === "create-series" ? "✅ Create" : "💾 Update"}
+                {saving ? "⏳ Saving..." : (modalType === "create-series" ? "✅ Create" : "💾 Update")}
               </button>
               <button
                 onClick={() => setShowModal(false)}
@@ -2166,19 +3576,20 @@ export default function Admin() {
             <div style={{ display: "flex", gap: "15px" }}>
               <button
                 onClick={modalType === "create-section" ? handleCreateSection : handleUpdateSection}
+                disabled={saving}
                 style={{
                   flex: 1,
                   padding: "15px",
-                  background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                  background: saving ? "#94a3b8" : "linear-gradient(135deg, #2563EB 0%, #3B82F6 100%)",
                   color: "#fff",
                   border: "none",
                   borderRadius: "10px",
                   fontSize: "1.1rem",
                   fontWeight: "700",
-                  cursor: "pointer"
+                  cursor: saving ? "not-allowed" : "pointer"
                 }}
               >
-                {modalType === "create-section" ? "✅ Create" : "💾 Update"}
+                {saving ? "⏳ Saving..." : (modalType === "create-section" ? "✅ Create" : "💾 Update")}
               </button>
               <button
                 onClick={() => setShowModal(false)}
@@ -2350,19 +3761,20 @@ export default function Admin() {
             <div style={{ display: "flex", gap: "15px" }}>
               <button
                 onClick={modalType === "create-test" ? handleCreateTest : handleUpdateTest}
+                disabled={saving}
                 style={{
                   flex: 1,
                   padding: "15px",
-                  background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                  background: saving ? "#94a3b8" : "linear-gradient(135deg, #2563EB 0%, #3B82F6 100%)",
                   color: "#fff",
                   border: "none",
                   borderRadius: "10px",
                   fontSize: "1.1rem",
                   fontWeight: "700",
-                  cursor: "pointer"
+                  cursor: saving ? "not-allowed" : "pointer"
                 }}
               >
-                {modalType === "create-test" ? "✅ Create" : "💾 Update"}
+                {saving ? "⏳ Saving..." : (modalType === "create-test" ? "✅ Create" : "💾 Update")}
               </button>
               <button
                 onClick={() => setShowModal(false)}
@@ -2417,30 +3829,47 @@ export default function Admin() {
               <label style={{ display: "block", marginBottom: "8px", fontWeight: "600", color: "#1e293b" }}>
                 Question *
               </label>
-              <textarea
+              <RichTextEditor
                 value={questionText}
-                onChange={(e) => setQuestionText(e.target.value)}
-                placeholder="Enter your question here..."
-                rows="3"
-                style={{
-                  width: "100%",
-                  padding: "12px",
-                  borderRadius: "8px",
-                  border: "2px solid #e2e8f0",
-                  fontSize: "1rem",
-                  resize: "vertical"
-                }}
+                onChange={setQuestionText}
+                placeholder="Enter your question here... Use toolbar for formatting"
               />
+            </div>
+
+            {/* Number of Options Selector */}
+            <div style={{ marginBottom: "20px" }}>
+              <label style={{ display: "block", marginBottom: "8px", fontWeight: "600", color: "#1e293b" }}>
+                Number of Options *
+              </label>
+              <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                <input
+                  type="number"
+                  min="2"
+                  max="10"
+                  value={numberOfOptions}
+                  onChange={(e) => handleNumberOfOptionsChange(e.target.value)}
+                  style={{
+                    width: "100px",
+                    padding: "12px",
+                    borderRadius: "8px",
+                    border: "2px solid #e2e8f0",
+                    fontSize: "1rem"
+                  }}
+                />
+                <span style={{ color: "#64748b", fontSize: "0.9rem" }}>
+                  (Min: 2, Max: 10)
+                </span>
+              </div>
             </div>
 
             <div style={{ marginBottom: "20px" }}>
               <label style={{ display: "block", marginBottom: "12px", fontWeight: "600", color: "#1e293b" }}>
-                Options * (4 required)
+                Options * ({numberOfOptions} options)
               </label>
               {options.map((option, idx) => (
                 <div key={idx} style={{ marginBottom: "10px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                    <span style={{ fontWeight: "700", color: "#667eea", minWidth: "30px" }}>
+                    <span style={{ fontWeight: "700", color: "#2563EB", minWidth: "30px" }}>
                       {String.fromCharCode(65 + idx)}.
                     </span>
                     <input
@@ -2481,10 +3910,11 @@ export default function Admin() {
                   cursor: "pointer"
                 }}
               >
-                <option value={0}>A - {options[0] || "Option A"}</option>
-                <option value={1}>B - {options[1] || "Option B"}</option>
-                <option value={2}>C - {options[2] || "Option C"}</option>
-                <option value={3}>D - {options[3] || "Option D"}</option>
+                {options.map((option, idx) => (
+                  <option key={idx} value={idx}>
+                    {String.fromCharCode(65 + idx)} - {option || `Option ${String.fromCharCode(65 + idx)}`}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -2572,38 +4002,30 @@ export default function Admin() {
               <label style={{ display: "block", marginBottom: "8px", fontWeight: "600", color: "#1e293b" }}>
                 Explanation (Optional)
               </label>
-              <textarea
+              <RichTextEditor
                 value={explanation}
-                onChange={(e) => setExplanation(e.target.value)}
-                placeholder="Explain why this is the correct answer..."
-                rows="3"
-                style={{
-                  width: "100%",
-                  padding: "12px",
-                  borderRadius: "8px",
-                  border: "2px solid #e2e8f0",
-                  fontSize: "1rem",
-                  resize: "vertical"
-                }}
+                onChange={setExplanation}
+                placeholder="Explain why this is the correct answer... Use toolbar for formatting"
               />
             </div>
 
             <div style={{ display: "flex", gap: "15px" }}>
               <button
                 onClick={modalType === "create-question" ? handleCreateQuestion : handleUpdateQuestion}
+                disabled={saving}
                 style={{
                   flex: 1,
                   padding: "15px",
-                  background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                  background: saving ? "#94a3b8" : "linear-gradient(135deg, #2563EB 0%, #3B82F6 100%)",
                   color: "#fff",
                   border: "none",
                   borderRadius: "10px",
                   fontSize: "1.1rem",
                   fontWeight: "700",
-                  cursor: "pointer"
+                  cursor: saving ? "not-allowed" : "pointer"
                 }}
               >
-                {modalType === "create-question" ? "✅ Add" : "💾 Update"}
+                {saving ? "⏳ Saving..." : (modalType === "create-question" ? "✅ Add" : "💾 Update")}
               </button>
               <button
                 onClick={() => setShowModal(false)}
@@ -2678,13 +4100,26 @@ export default function Admin() {
     "options": ["Option A", "Option B", "Option C", "Option D"],
     "answer": 0,
     "explanation": "Explanation here"
+  },
+  {
+    "question": "True/False question?",
+    "options": ["True", "False"],
+    "answer": 0,
+    "explanation": "Explanation for true/false"
+  },
+  {
+    "question": "Question with 5 options?",
+    "options": ["Option A", "Option B", "Option C", "Option D", "Option E"],
+    "answer": 2,
+    "explanation": "Explanation here"
   }
 ]`}
               </pre>
               <div style={{ marginTop: "10px", fontSize: "0.85rem" }}>
-                • <strong>answer</strong> must be 0-3 (0=A, 1=B, 2=C, 3=D)<br/>
-                • <strong>options</strong> must have exactly 4 items<br/>
-                • <strong>explanation</strong> is optional
+                • <strong>options</strong>: 2-10 options allowed (flexible!)<br/>
+                • <strong>answer</strong>: 0-based index (0=first option, 1=second, etc.)<br/>
+                • <strong>explanation</strong>: optional<br/>
+                • Examples: 2 options (True/False), 4 options (MCQ), 5+ options (extended MCQ)
               </div>
             </div>
 
@@ -2791,7 +4226,7 @@ export default function Admin() {
                 style={{
                   flex: 2,
                   padding: "15px",
-                  background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                  background: "linear-gradient(135deg, #2563EB 0%, #3B82F6 100%)",
                   color: "#fff",
                   border: "none",
                   borderRadius: "10px",
@@ -3046,6 +4481,181 @@ export default function Admin() {
         </div>
       )}
 
+      {/* AI PDF Converter Modal */}
+      {showPdfConverter && (
+        <AIPdfConverter
+          onQuestionsGenerated={handlePdfQuestionsGenerated}
+          onClose={() => setShowPdfConverter(false)}
+        />
+      )}
+
+      {/* Live Test Schedule Modal */}
+      {showLiveModal && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+          background: "rgba(0,0,0,0.6)", display: "flex",
+          alignItems: "center", justifyContent: "center", zIndex: 2000, padding: "20px"
+        }}>
+          <div style={{
+            background: "#fff", borderRadius: "20px", padding: "35px",
+            maxWidth: "500px", width: "100%", boxShadow: "0 20px 60px rgba(0,0,0,0.3)"
+          }}>
+            <h2 style={{ margin: "0 0 8px 0", fontSize: "1.6rem", fontWeight: "800", color: "#1e293b" }}>
+              🔴 Live Test Schedule
+            </h2>
+            <p style={{ margin: "0 0 25px 0", color: "#64748b", fontSize: "0.95rem" }}>
+              {currentSection?.tests?.[liveTestIdx]?.title}
+            </p>
+
+            {liveSchedule && (
+              <div style={{
+                background: "#fef3c7", border: "2px solid #fbbf24",
+                borderRadius: "10px", padding: "12px 16px", marginBottom: "20px",
+                fontSize: "0.9rem", color: "#92400e"
+              }}>
+                ⚠️ Existing schedule hai — update karne ke liye naya time set karo.
+                <br />
+                <strong>Current:</strong> {new Date(liveSchedule.startTime).toLocaleString('en-IN')} → {new Date(liveSchedule.endTime).toLocaleString('en-IN')}
+              </div>
+            )}
+
+            <div style={{ marginBottom: "20px" }}>
+              <label style={{ display: "block", fontWeight: "700", color: "#1e293b", marginBottom: "8px" }}>
+                ⏰ Start Time
+              </label>
+              <input
+                type="datetime-local"
+                value={liveStartTime}
+                onChange={(e) => setLiveStartTime(e.target.value)}
+                style={{
+                  width: "100%", padding: "12px", border: "2px solid #e2e8f0",
+                  borderRadius: "10px", fontSize: "1rem", boxSizing: "border-box"
+                }}
+              />
+            </div>
+
+            <div style={{ marginBottom: "25px" }}>
+              <label style={{ display: "block", fontWeight: "700", color: "#1e293b", marginBottom: "8px" }}>
+                ⏰ End Time
+              </label>
+              <input
+                type="datetime-local"
+                value={liveEndTime}
+                onChange={(e) => setLiveEndTime(e.target.value)}
+                style={{
+                  width: "100%", padding: "12px", border: "2px solid #e2e8f0",
+                  borderRadius: "10px", fontSize: "1rem", boxSizing: "border-box"
+                }}
+              />
+            </div>
+
+            <div style={{
+              background: "#f0fdf4", border: "2px solid #86efac",
+              borderRadius: "10px", padding: "12px 16px", marginBottom: "25px",
+              fontSize: "0.9rem", color: "#166534"
+            }}>
+              🔒 <strong>One Attempt Per User:</strong> Har Gmail account se sirf ek baar test diya ja sakta hai.
+            </div>
+
+            <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+              <button
+                onClick={handleSaveLiveSchedule}
+                style={{
+                  flex: 2, padding: "14px",
+                  background: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)",
+                  color: "#fff", border: "none", borderRadius: "10px",
+                  fontWeight: "700", cursor: "pointer", fontSize: "1rem"
+                }}
+              >
+                🔴 {liveSchedule ? "Update Schedule" : "Go Live"}
+              </button>
+              {liveSchedule && (
+                <button
+                  onClick={handleRemoveLiveSchedule}
+                  style={{
+                    flex: 1, padding: "14px",
+                    background: "#f1f5f9", color: "#ef4444",
+                    border: "2px solid #ef4444", borderRadius: "10px",
+                    fontWeight: "700", cursor: "pointer", fontSize: "1rem"
+                  }}
+                >
+                  🗑️ Remove
+                </button>
+              )}
+              <button
+                onClick={() => setShowLiveModal(false)}
+                style={{
+                  flex: 1, padding: "14px",
+                  background: "#e2e8f0", color: "#64748b",
+                  border: "none", borderRadius: "10px",
+                  fontWeight: "700", cursor: "pointer", fontSize: "1rem"
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Study Material Modal */}
+      {showStudyModal && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000, padding: "20px" }}>
+          <div style={{ background: "#fff", borderRadius: "20px", padding: "30px", maxWidth: "480px", width: "100%", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+            <h2 style={{ margin: "0 0 20px 0", fontSize: "1.4rem", fontWeight: "800", color: "#1e293b" }}>
+              {studyModalType === "mat" ? (studyEditingIdx !== null ? "✏️ Edit Category" : "➕ Add Category") :
+               studyModalType === "section" ? (studyEditingIdx !== null ? "✏️ Edit Section" : "➕ Add Section") :
+               (studyEditingIdx !== null ? "✏️ Edit Item" : "➕ Add Item")}
+            </h2>
+
+            <div style={{ marginBottom: "15px" }}>
+              <label style={{ display: "block", fontWeight: "700", marginBottom: "6px", color: "#1e293b" }}>Title *</label>
+              <input value={studyTitle} onChange={e => setStudyTitle(e.target.value)} placeholder="Title..." style={{ width: "100%", padding: "10px", border: "2px solid #e2e8f0", borderRadius: "8px", fontSize: "1rem", boxSizing: "border-box" }} />
+            </div>
+
+            {studyModalType !== "section" && (
+              <div style={{ marginBottom: "15px" }}>
+                <label style={{ display: "block", fontWeight: "700", marginBottom: "6px", color: "#1e293b" }}>Description</label>
+                <textarea value={studyDescription} onChange={e => setStudyDescription(e.target.value)} placeholder="Description..." rows={3} style={{ width: "100%", padding: "10px", border: "2px solid #e2e8f0", borderRadius: "8px", fontSize: "1rem", boxSizing: "border-box", resize: "vertical" }} />
+              </div>
+            )}
+
+            {studyModalType === "item" && (
+              <>
+                <div style={{ marginBottom: "15px" }}>
+                  <label style={{ display: "block", fontWeight: "700", marginBottom: "8px", color: "#1e293b" }}>Type</label>
+                  <div style={{ display: "flex", gap: "10px" }}>
+                    <button onClick={() => setStudyItemType("video")} style={{ flex: 1, padding: "10px", background: studyItemType === "video" ? "#7c3aed" : "#e2e8f0", color: studyItemType === "video" ? "#fff" : "#64748b", border: "none", borderRadius: "8px", fontWeight: "700", cursor: "pointer" }}>▶️ Video</button>
+                    <button onClick={() => setStudyItemType("notes")} style={{ flex: 1, padding: "10px", background: studyItemType === "notes" ? "#0ea5e9" : "#e2e8f0", color: studyItemType === "notes" ? "#fff" : "#64748b", border: "none", borderRadius: "8px", fontWeight: "700", cursor: "pointer" }}>📄 Notes</button>
+                  </div>
+                </div>
+                {studyItemType === "video" && (
+                  <div style={{ marginBottom: "15px" }}>
+                    <label style={{ display: "block", fontWeight: "700", marginBottom: "6px", color: "#1e293b" }}>YouTube URL</label>
+                    <input value={studyYoutubeUrl} onChange={e => setStudyYoutubeUrl(e.target.value)} placeholder="https://youtube.com/watch?v=..." style={{ width: "100%", padding: "10px", border: "2px solid #e2e8f0", borderRadius: "8px", fontSize: "0.95rem", boxSizing: "border-box" }} />
+                  </div>
+                )}
+                {studyItemType === "notes" && (
+                  <div style={{ marginBottom: "15px" }}>
+                    <label style={{ display: "block", fontWeight: "700", marginBottom: "6px", color: "#1e293b" }}>Telegram Link</label>
+                    <input value={studyPdfUrl} onChange={e => setStudyPdfUrl(e.target.value)} placeholder="https://t.me/..." style={{ width: "100%", padding: "10px", border: "2px solid #e2e8f0", borderRadius: "8px", fontSize: "0.95rem", boxSizing: "border-box" }} />
+                  </div>
+                )}
+              </>
+            )}
+
+            <div style={{ display: "flex", gap: "10px", marginTop: "20px" }}>
+              <button onClick={handleStudySave} disabled={studySaving} style={{ flex: 2, padding: "12px", background: studySaving ? "#94a3b8" : "linear-gradient(135deg, #7c3aed 0%, #a855f7 100%)", color: "#fff", border: "none", borderRadius: "10px", fontWeight: "700", cursor: studySaving ? "not-allowed" : "pointer", fontSize: "1rem" }}>
+                {studySaving ? "⏳ Saving..." : "✅ Save"}
+              </button>
+              <button onClick={() => setShowStudyModal(false)} style={{ flex: 1, padding: "12px", background: "#e2e8f0", color: "#64748b", border: "none", borderRadius: "10px", fontWeight: "700", cursor: "pointer" }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
+
+

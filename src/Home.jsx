@@ -167,6 +167,32 @@ export default function Home() {
             }}>
               <span>🚀</span> Start Practice Now
             </Link>
+
+            <Link to="/study-material" style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "8px",
+              padding: "14px 32px",
+              background: "linear-gradient(135deg, #7c3aed 0%, #a855f7 100%)",
+              color: "#fff",
+              textDecoration: "none",
+              borderRadius: "50px",
+              fontWeight: "700",
+              fontSize: "1rem",
+              boxShadow: "0 10px 30px rgba(124, 58, 237, 0.4)",
+              transition: "all 0.3s ease",
+              border: "none"
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = "translateY(-3px)";
+              e.currentTarget.style.boxShadow = "0 15px 40px rgba(124, 58, 237, 0.5)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = "translateY(0)";
+              e.currentTarget.style.boxShadow = "0 10px 30px rgba(124, 58, 237, 0.4)";
+            }}>
+              <span>📚</span> Study Material
+            </Link>
             
             <a href="#test-series" style={{
               display: "inline-flex",

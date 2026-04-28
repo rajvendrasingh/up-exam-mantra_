@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>🚀 Auto Recovery - Lekhpal & Constable</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 900px;
+            margin: 20px auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+        }
+        .container {
+            background: #fff;
+            color: #1e293b;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #2563EB;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            text-align: center;
+            color: #64748b;
+            margin-bottom: 30px;
+        }
+        .big-button {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            border: none;
+            padding: 20px 40px;
+            border-radius: 12px;
+            font-size: 20px;
+            font-weight: bold;
+            cursor: pointer;
+            width: 100%;
+            margin: 20px 0;
+            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
+        }
+        .big-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(16, 185, 129, 0.6);
+        }
+        #output {
+            background: #1e293b;
+            color: #10b981;
+            padding: 20px;
+            border-radius: 12px;
+            margin-top: 20px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            max-height: 500px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            display: none;
+        }
+        .info-box {
+            background: #dbeafe;
+            padding: 20px;
+            border-radius: 12px;
+            margin: 20px 0;
+            border-left: 4px solid #2563EB;
+        }
+        .success-box {
+            background: #d1fae5;
+            padding: 20px;
+            border-radius: 12px;
+            margin: 20px 0;
+            border-left: 4px solid #10b981;
+            display: none;
+        }
+        .loading {
+            text-align: center;
+            padding: 20px;
+            display: none;
+        }
+        .spinner {
+            border: 4px solid #f3f4f6;
+            border-top: 4px solid #2563EB;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Automatic Recovery Tool</h1>
+        <div class="subtitle">Lekhpal & Constable Test Series</div>
+        
+        <div class="info-box">
+            <strong>📋 Yeh Tool Kya Karega:</strong><br><br>
+            ✅ Firestore database se connect karega<br>
+            ✅ "Lekhpal" aur "Constable" related test series dhundhega<br>
+            ✅ Automatically sabko activate kar dega<br>
+            ✅ Koi manual input nahi chahiye<br>
+            ✅ 30 seconds me complete ho jayega
+        </div>
+
+        <button class="big-button" onclick="autoRecover()">
+            🚀 START AUTO RECOVERY
+        </button>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p style="margin-top: 15px; color: #64748b;">Processing... Please wait...</p>
+        </div>
+
+        <div class="success-box" id="success">
+            <h3 style="color: #059669; margin-top: 0;">✅ Recovery Complete!</h3>
+            <p id="successMessage"></p>
+        </div>
+
+        <div id="output"></div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { getFirestore, collection, getDocs, doc, updateDoc } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyDk6yXI-QYd85qd-_1VshveXXHSlm5bKVo",
+            authDomain: "up-exam-mantra.firebaseapp.com",
+            projectId: "up-exam-mantra",
+            storageBucket: "up-exam-mantra.firebasestorage.app",
+            messagingSenderId: "508833223039",
+            appId: "1:508833223039:web:2435b355a5ba4581ad4a4a"
+        };
+
+        let app, db;
+
+        function log(msg) {
+            const output = document.getElementById('output');
+            output.style.display = 'block';
+            output.innerHTML += msg + '\n';
+            output.scrollTop = output.scrollHeight;
+        }
+
+        function showLoading(show) {
+            document.getElementById('loading').style.display = show ? 'block' : 'none';
+        }
+
+        function showSuccess(message) {
+            const successBox = document.getElementById('success');
+            const successMessage = document.getElementById('successMessage');
+            successBox.style.display = 'block';
+            successMessage.innerHTML = message;
+        }
+
+        window.autoRecover = async function() {
+            try {
+                showLoading(true);
+                document.getElementById('output').innerHTML = '';
+                document.getElementById('success').style.display = 'none';
+                
+                log('🚀 Starting Automatic Recovery...\n');
+                log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+                
+                // Step 1: Connect to Firestore
+                log('Step 1: Connecting to Firestore...');
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                log('✅ Connected successfully!\n');
+                
+                // Step 2: Fetch all test series
+                log('Step 2: Fetching all test series from database...');
+                const snapshot = await getDocs(collection(db, 'testSeries'));
+                log(`✅ Found ${snapshot.size} test series in database\n`);
+                
+                // Step 3: Search for Lekhpal and Constable
+                log('Step 3: Searching for Lekhpal & Constable test series...\n');
+                
+                const keywords = ['lekhpal', 'constable', 'police'];
+                const foundSeries = [];
+                
+                snapshot.forEach((docSnap) => {
+                    const data = docSnap.data();
+                    const title = (data.title || '').toLowerCase();
+                    const description = (data.description || '').toLowerCase();
+                    const category = (data.category || '').toLowerCase();
+                    
+                    // Check if any keyword matches
+                    const matches = keywords.some(keyword => 
+                        title.includes(keyword) || 
+                        description.includes(keyword) || 
+                        category.includes(keyword)
+                    );
+                    
+                    if (matches) {
+                        foundSeries.push({
+                            id: docSnap.id,
+                            data: data,
+                            title: data.title,
+                            status: data.status || 'unknown'
+                        });
+                        
+                        log(`🎯 FOUND: ${data.title}`);
+                        log(`   Status: ${data.status || 'unknown'}`);
+                        log(`   ID: ${docSnap.id}`);
+                        log('');
+                    }
+                });
+                
+                if (foundSeries.length === 0) {
+                    log('❌ No Lekhpal or Constable test series found!\n');
+                    log('💡 Possible reasons:');
+                    log('   1. Test series deleted permanently');
+                    log('   2. Different naming used');
+                    log('   3. Not in database\n');
+                    
+                    log('📋 All test series in database:');
+                    snapshot.forEach((docSnap, index) => {
+                        log(`   ${index + 1}. ${docSnap.data().title}`);
+                    });
+                    
+                    showLoading(false);
+                    alert('❌ No matching test series found!\n\nCheck console output for all available test series.');
+                    return;
+                }
+                
+                log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+                log(`Step 4: Activating ${foundSeries.length} test series...\n`);
+                
+                // Step 4: Activate all found series
+                let activated = 0;
+                let alreadyActive = 0;
+                
+                for (const series of foundSeries) {
+                    if (series.status !== 'active') {
+                        log(`🔄 Activating: ${series.title}`);
+                        await updateDoc(doc(db, 'testSeries', series.id), {
+                            status: 'active',
+                            updatedAt: new Date().toISOString()
+                        });
+                        log(`✅ Activated successfully!\n`);
+                        activated++;
+                    } else {
+                        log(`ℹ️  Already active: ${series.title}\n`);
+                        alreadyActive++;
+                    }
+                }
+                
+                // Step 5: Summary
+                log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+                log('🎉 RECOVERY COMPLETE!\n');
+                log(`✅ Activated: ${activated} test series`);
+                log(`ℹ️  Already active: ${alreadyActive} test series`);
+                log(`📊 Total processed: ${foundSeries.length} test series\n`);
+                log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+                
+                // Show success message
+                const successMsg = `
+                    <strong>Recovered Test Series:</strong><br><br>
+                    ${foundSeries.map(s => `• ${s.title}`).join('<br>')}
+                    <br><br>
+                    <strong>✅ Activated:</strong> ${activated}<br>
+                    <strong>ℹ️  Already Active:</strong> ${alreadyActive}<br>
+                    <strong>📊 Total:</strong> ${foundSeries.length}
+                    <br><br>
+                    <strong>Next Step:</strong> Refresh admin panel (F5)
+                `;
+                
+                showSuccess(successMsg);
+                showLoading(false);
+                
+                alert(`✅ SUCCESS!\n\n${activated} test series activated!\n${alreadyActive} were already active.\n\nRefresh admin panel to see changes.`);
+                
+            } catch (error) {
+                log('\n❌ ERROR: ' + error.message);
+                console.error('Full error:', error);
+                showLoading(false);
+                alert('❌ Error: ' + error.message + '\n\nCheck console for details.');
+            }
+        };
+    </script>
+</body>
+</html>

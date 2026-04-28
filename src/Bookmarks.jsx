@@ -51,7 +51,7 @@ export default function Bookmarks() {
     }}>
       {/* Header */}
       <div style={{
-        background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+        background: "linear-gradient(135deg, #2563EB 0%, #3B82F6 100%)",
         borderRadius: "20px",
         padding: "40px",
         color: "#fff",
@@ -190,3 +190,4 @@ export default function Bookmarks() {
     </div>
   );
 }
+

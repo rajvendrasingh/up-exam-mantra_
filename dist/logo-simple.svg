@@ -1,0 +1,13 @@
+<svg width="400" height="300" viewBox="0 0 400 300" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- White Background -->
+  <rect width="400" height="300" fill="white"/>
+  
+  <!-- Note: This is a placeholder. Please replace with your actual logo image -->
+  <!-- To use your logo: -->
+  <!-- 1. Save your logo as 'logo.png' in the public folder -->
+  <!-- 2. Then we'll update the code to use that image -->
+  
+  <text x="200" y="150" font-family="Arial" font-size="24" fill="#666" text-anchor="middle">
+    Please upload your logo image as 'logo.png' in public folder
+  </text>
+</svg>

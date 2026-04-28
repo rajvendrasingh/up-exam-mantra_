@@ -7,7 +7,7 @@ export default function Help() {
     }}>
       {/* Header */}
       <div style={{
-        background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+        background: "linear-gradient(135deg, #2563EB 0%, #3B82F6 100%)",
         borderRadius: "20px",
         padding: "40px",
         color: "#fff",
@@ -31,69 +31,27 @@ export default function Help() {
         marginBottom: "40px"
       }}>
         {/* Phone */}
-        <a href="tel:7054404700" style={{
+        <div style={{
           background: "#fff",
           borderRadius: "15px",
           padding: "30px",
-          boxShadow: "0 4px 15px rgba(0,0,0,0.08)",
-          textDecoration: "none",
-          transition: "transform 0.2s, box-shadow 0.2s",
-          cursor: "pointer"
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.transform = "translateY(-5px)";
-          e.currentTarget.style.boxShadow = "0 8px 25px rgba(0,0,0,0.15)";
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.transform = "translateY(0)";
-          e.currentTarget.style.boxShadow = "0 4px 15px rgba(0,0,0,0.08)";
-        }}>
-          <div style={{ fontSize: "3rem", marginBottom: "15px" }}>📞</div>
-          <h3 style={{ margin: "0 0 10px 0", color: "#1e293b" }}>Call Us</h3>
-          <p style={{ color: "#64748b", margin: "0 0 15px 0" }}>
-            Speak directly with our support team
-          </p>
-          <div style={{ 
-            fontSize: "1.3rem", 
-            fontWeight: "bold", 
-            color: "#10b981" 
-          }}>
-            7054404700
-          </div>
-        </a>
-
-        {/* Email */}
-        <a href="mailto:upexammantra@gmail.com" style={{
-          background: "#fff",
-          borderRadius: "15px",
-          padding: "30px",
-          boxShadow: "0 4px 15px rgba(0,0,0,0.08)",
-          textDecoration: "none",
-          transition: "transform 0.2s, box-shadow 0.2s",
-          cursor: "pointer"
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.transform = "translateY(-5px)";
-          e.currentTarget.style.boxShadow = "0 8px 25px rgba(0,0,0,0.15)";
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.transform = "translateY(0)";
-          e.currentTarget.style.boxShadow = "0 4px 15px rgba(0,0,0,0.08)";
+          boxShadow: "0 4px 15px rgba(0,0,0,0.08)"
         }}>
           <div style={{ fontSize: "3rem", marginBottom: "15px" }}>📧</div>
           <h3 style={{ margin: "0 0 10px 0", color: "#1e293b" }}>Email Us</h3>
           <p style={{ color: "#64748b", margin: "0 0 15px 0" }}>
             Send us your queries anytime
           </p>
-          <div style={{ 
+          <a href="mailto:upexammantra@gmail.com" style={{ 
             fontSize: "1.1rem", 
             fontWeight: "600", 
             color: "#f59e0b",
-            wordBreak: "break-all"
+            wordBreak: "break-all",
+            textDecoration: "none"
           }}>
             upexammantra@gmail.com
-          </div>
-        </a>
+          </a>
+        </div>
 
         {/* YouTube */}
         <a href="https://youtube.com/@upexammantra?si=Mnv_TczfH3EM2NEr" target="_blank" rel="noopener noreferrer" style={{
@@ -202,7 +160,7 @@ export default function Help() {
               padding: "25px",
               background: "#f8fafc",
               borderRadius: "12px",
-              borderLeft: "4px solid #667eea"
+              borderLeft: "4px solid #2563EB"
             }}>
               <h3 style={{ 
                 margin: "0 0 10px 0", 
@@ -225,3 +183,4 @@ export default function Help() {
     </div>
   );
 }
+

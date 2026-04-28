@@ -1,0 +1,43 @@
+<svg width="300" height="300" viewBox="0 0 300 300" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Outer Circle with gradient border -->
+  <circle cx="150" cy="150" r="145" fill="white" stroke="url(#borderGradient)" stroke-width="8"/>
+  
+  <defs>
+    <linearGradient id="borderGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#003DA5;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#DC143C;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#FDB913;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Sun with rays -->
+  <g transform="translate(210, 80)">
+    <!-- Rays -->
+    <path d="M0,-20 L6,-8 L-6,-8 Z" fill="#FDB913"/>
+    <path d="M14,-14 L16,-2 L4,-2 Z" fill="#FDB913" transform="rotate(45 0 0)"/>
+    <path d="M20,0 L20,12 L8,12 Z" fill="#FDB913" transform="rotate(90 0 0)"/>
+    <path d="M14,14 L16,26 L4,26 Z" fill="#FDB913" transform="rotate(135 0 0)"/>
+    <path d="M0,20 L6,32 L-6,32 Z" fill="#FDB913" transform="rotate(180 0 0)"/>
+    <path d="M-14,14 L-12,26 L-24,26 Z" fill="#FDB913" transform="rotate(225 0 0)"/>
+    <!-- Sun circle -->
+    <circle cx="0" cy="0" r="30" fill="#FDB913"/>
+    <circle cx="0" cy="0" r="24" fill="#FFCB05"/>
+  </g>
+  
+  <!-- UP Text (Large Red) -->
+  <text x="90" y="130" font-family="Arial Black, sans-serif" font-size="80" font-weight="900" fill="#DC143C" letter-spacing="-3">UP</text>
+  
+  <!-- Upward Arrow -->
+  <path d="M125 60 L150 35 L175 60 L160 60 L160 95 L140 95 L140 60 Z" fill="#FDB913"/>
+  
+  <!-- EXAM Text (White on Blue background) -->
+  <rect x="60" y="135" width="180" height="45" fill="#003DA5" rx="8"/>
+  <text x="150" y="167" font-family="Arial Black, sans-serif" font-size="36" font-weight="900" fill="white" text-anchor="middle">EXAM</text>
+  
+  <!-- MANTRA Text (Yellow - Clean) -->
+  <text x="150" y="215" font-family="Arial, sans-serif" font-size="40" font-weight="bold" fill="#FDB913" text-anchor="middle" letter-spacing="2">MANTRA</text>
+  
+  <!-- Bottom Ribbon Banner -->
+  <path d="M50,225 L250,225 L255,240 L250,255 L50,255 L45,240 Z" fill="#003DA5"/>
+  <text x="150" y="246" font-family="Arial, sans-serif" font-size="16" font-weight="700" fill="white" text-anchor="middle">UP Exams Made Easy</text>
+</svg>

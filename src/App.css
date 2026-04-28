@@ -9,3 +9,67 @@
   width: 100%;
   max-width: 100%;
 }
+
+/* Mobile Screenshot Protection */
+* {
+  -webkit-user-select: none !important;
+  -webkit-touch-callout: none !important;
+  -webkit-tap-highlight-color: transparent !important;
+  user-select: none !important;
+}
+
+/* Allow text selection only in input fields */
+input,
+textarea,
+[contenteditable="true"] {
+  -webkit-user-select: text !important;
+  user-select: text !important;
+}
+
+/* Admin Mode - Enable all selections and interactions */
+body.admin-mode * {
+  -webkit-user-select: text !important;
+  -webkit-touch-callout: default !important;
+  user-select: text !important;
+}
+
+body.admin-mode input,
+body.admin-mode textarea,
+body.admin-mode [contenteditable="true"] {
+  -webkit-user-select: text !important;
+  user-select: text !important;
+}
+
+/* Prevent screenshot overlay */
+body::after {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: -1;
+  background: transparent;
+}
+
+/* Remove overlay for admin */
+body.admin-mode::after {
+  display: none;
+}
+
+/* Additional mobile protection */
+html,
+body {
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* Admin mode - enable everything */
+body.admin-mode {
+  -webkit-user-select: text !important;
+  -webkit-touch-callout: default !important;
+  touch-action: auto !important;
+}

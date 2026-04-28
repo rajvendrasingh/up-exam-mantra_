@@ -1,8 +1,12 @@
-import { useContext, useState, useEffect } from "react";
+import { useContext, useState, useEffect, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import { TestSeriesContext } from "./TestSeriesContext";
+import { saveTestResult, getLiveTestSchedule, checkUserAttemptedLiveTest, recordLiveTestAttempt } from "./services/firestoreService";
+import { auth } from "./firebase";
 
 export default function Mocktest() {
   const { testSeries, addTestResult } = useContext(TestSeriesContext);
+  const [searchParams] = useSearchParams();
   
   // Filter only active test series for users
   const activeTestSeries = testSeries.filter(series => series.status === "active");
@@ -39,6 +43,115 @@ export default function Mocktest() {
   
   // Mobile menu state
   const [showMobileMenu, setShowMobileMenu] = useState(false);
+  
+  // Test start time track karne ke liye ref
+  const testStartTimeRef = useRef(null);
+
+  // Live test state
+  const [liveSchedule, setLiveSchedule] = useState(null); // current test ka live schedule
+
+  // Deep link handler: URL params se seedha test kholo
+  // e.g. /test?series=SERIES_ID&section=SECTION_ID&test=TEST_ID
+  useEffect(() => {
+    const seriesId = searchParams.get("series");
+    const sectionId = searchParams.get("section");
+    const testId = searchParams.get("test");
+
+    if (!seriesId || activeTestSeries.length === 0) return;
+
+    const sIdx = activeTestSeries.findIndex(s => s.id === seriesId);
+    if (sIdx === -1) return;
+
+    setSelectedSeriesIdx(sIdx);
+
+    if (!sectionId) { setMode("section"); return; }
+
+    const series = activeTestSeries[sIdx];
+    const secIdx = series.sections?.findIndex(s => s.id === sectionId) ?? -1;
+    if (secIdx === -1) { setMode("section"); return; }
+
+    setSelectedSectionIdx(secIdx);
+
+    if (!testId) { setMode("test"); return; }
+
+    const section = series.sections[secIdx];
+    const tIdx = section.tests?.findIndex(t => t.id === testId) ?? -1;
+    if (tIdx === -1) { setMode("test"); return; }
+
+    setSelectedTestIdx(tIdx);
+    setMode("test");
+
+    const test = section.tests[tIdx];
+    if (test.questions && test.questions.length > 0) {
+      setShowInstructions(true);
+    }
+  }, [searchParams, activeTestSeries.length]);
+
+  // Auto-skip logic: agar sirf ek series/section/test hai to seedha kholo
+  useEffect(() => {
+    if (activeTestSeries.length === 0) return;
+
+    // Deep link: URL params se seedha test pe jaao
+    const seriesId = searchParams.get("series");
+    const sectionId = searchParams.get("section");
+    const testId = searchParams.get("test");
+
+    if (seriesId && sectionId && testId) {
+      const sIdx = activeTestSeries.findIndex(s => s.id === seriesId);
+      if (sIdx === -1) return;
+      const series = activeTestSeries[sIdx];
+      const secIdx = series.sections?.findIndex(sec => sec.id === sectionId) ?? -1;
+      if (secIdx === -1) return;
+      const section = series.sections[secIdx];
+      const tIdx = section.tests?.findIndex(t => t.id === testId) ?? -1;
+      if (tIdx === -1) return;
+
+      setSelectedSeriesIdx(sIdx);
+      setSelectedSectionIdx(secIdx);
+      setSelectedTestIdx(tIdx);
+      setMode("test");
+      if (section.tests[tIdx].questions?.length > 0) {
+        setShowInstructions(true);
+      }
+      return;
+    }
+
+    // Auto-skip: agar sirf ek series hai
+    if (mode === "select" && activeTestSeries.length === 1) {
+      const series = activeTestSeries[0];
+      setSelectedSeriesIdx(0);
+      if (series.sections && series.sections.length > 0) {
+        setMode("section");
+      }
+    }
+  }, [activeTestSeries.length, mode, searchParams]);
+  useEffect(() => {
+    if (mode === "section" && selectedSeriesIdx !== null) {
+      const series = activeTestSeries[selectedSeriesIdx];
+      const sections = series?.sections || [];
+      if (sections.length === 1) {
+        setSelectedSectionIdx(0);
+        if (sections[0].tests && sections[0].tests.length > 0) {
+          setMode("test");
+        }
+      }
+    }
+  }, [mode, selectedSeriesIdx]);
+
+  useEffect(() => {
+    if (mode === "test" && selectedSectionIdx !== null && selectedSeriesIdx !== null) {
+      const series = activeTestSeries[selectedSeriesIdx];
+      const section = series?.sections?.[selectedSectionIdx];
+      const activeTests = section?.tests?.filter(t => t.status === "active") || [];
+      if (activeTests.length === 1) {
+        const originalIdx = section.tests.findIndex(t => t.id === activeTests[0].id);
+        setSelectedTestIdx(originalIdx);
+        if (activeTests[0].questions && activeTests[0].questions.length > 0) {
+          setShowInstructions(true);
+        }
+      }
+    }
+  }, [mode, selectedSectionIdx]);
 
   // Reset when test changes
   useEffect(() => {
@@ -186,7 +299,7 @@ export default function Mocktest() {
     return translatedOptions[questionId]?.[currentLanguage] || questions[current].options;
   };
 
-  const handleFinishTest = () => {
+  const handleFinishTest = async () => {
     // Calculate final score properly
     let finalScore = 0;
     let correctCount = 0;
@@ -230,6 +343,43 @@ export default function Mocktest() {
     
     console.log("Saving test result:", testResult);
     addTestResult(testResult);
+
+    // Firestore mein bhi save karo test-specific leaderboard ke liye
+    const user = auth.currentUser;
+    if (user) {
+      const testId = `${currentSeries?.id}_${currentSection?.id}_${currentTest?.id}`;
+      try {
+        await saveTestResult({
+          userId: user.uid,
+          userName: user.displayName || user.email?.split('@')[0] || 'Student',
+          userEmail: user.email,
+          testId,
+          testTitle: currentTest?.title,
+          seriesTitle: currentSeries?.title,
+          sectionTitle: currentSection?.title,
+          score: finalScore,
+          totalQuestions: questions.length,
+          correctAnswers: correctCount,
+          wrongAnswers: wrongCount,
+          skippedAnswers: unattemptedCount,
+          timeTaken: testStartTimeRef.current ? Math.floor((Date.now() - testStartTimeRef.current) / 1000) : 0,
+          percentage: parseFloat(((correctCount / questions.length) * 100).toFixed(2))
+        });
+        console.log("✅ Leaderboard mein save ho gaya");
+
+        // Agar yeh live test tha to attempt record karo (ek baar ka rule)
+        if (liveSchedule && liveSchedule.id) {
+          try {
+            await recordLiveTestAttempt(user.uid, user.email, liveSchedule.id, currentTest?.title);
+            console.log("✅ Live test attempt recorded");
+          } catch (err) {
+            console.error("❌ Live attempt record error:", err);
+          }
+        }
+      } catch (err) {
+        console.error("❌ Leaderboard save error:", err);
+      }
+    }
   };
 
   const getQuestionStatus = (idx) => {
@@ -298,46 +448,84 @@ export default function Mocktest() {
               activeTestSeries.map((series, idx) => (
                 <div
                   key={series.id}
-                  onClick={() => {
-                    setSelectedSeriesIdx(idx);
-                    if (series.sections && series.sections.length > 0) {
-                      setMode("section");
-                    } else {
-                      alert("This test series has no sections yet. Please ask admin to add sections and tests.");
-                    }
-                  }}
                   style={{
-                    padding: "25px",
                     marginBottom: "15px",
                     background: selectedSeriesIdx === idx ? "linear-gradient(135deg, #667eea 0%, #764ba2 100%)" : "#f8fafc",
                     color: selectedSeriesIdx === idx ? "#fff" : "#1e293b",
                     borderRadius: "15px",
-                    cursor: "pointer",
                     border: selectedSeriesIdx === idx ? "none" : "2px solid #e2e8f0",
-                    transition: "all 0.3s"
+                    overflow: "hidden"
                   }}
                 >
-                  <div style={{ 
-                    display: "flex", 
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    marginBottom: "10px"
-                  }}>
-                    <h3 style={{ margin: 0, fontSize: "1.3rem" }}>{series.title}</h3>
-                    <span style={{
-                      background: selectedSeriesIdx === idx ? "rgba(255,255,255,0.2)" : series.status === "active" ? "#10b981" : "#f59e0b",
-                      color: selectedSeriesIdx === idx ? "#fff" : "#fff",
-                      padding: "5px 15px",
-                      borderRadius: "20px",
-                      fontSize: "0.85rem",
-                      fontWeight: "600"
+                  {/* Clickable area */}
+                  <div
+                    onClick={() => {
+                      setSelectedSeriesIdx(idx);
+                      if (series.sections && series.sections.length > 0) {
+                        setMode("section");
+                      } else {
+                        alert("This test series has no sections yet. Please ask admin to add sections and tests.");
+                      }
+                    }}
+                    style={{ padding: "25px", cursor: "pointer" }}
+                  >
+                    <div style={{ 
+                      display: "flex", 
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      marginBottom: "10px"
                     }}>
-                      {series.status === "active" ? "✅ Active" : "📝 Draft"}
-                    </span>
+                      <h3 style={{ margin: 0, fontSize: "1.3rem" }}>{series.title}</h3>
+                      <span style={{
+                        background: selectedSeriesIdx === idx ? "rgba(255,255,255,0.2)" : "#10b981",
+                        color: "#fff",
+                        padding: "5px 15px",
+                        borderRadius: "20px",
+                        fontSize: "0.85rem",
+                        fontWeight: "600"
+                      }}>
+                        ✅ Active
+                      </span>
+                    </div>
+                    <div style={{ fontSize: "0.95rem", opacity: 0.9 }}>
+                      📂 {series.sections?.length || 0} Sections | 
+                      {series.category && ` 📚 ${series.category}`}
+                    </div>
                   </div>
-                  <div style={{ fontSize: "0.95rem", opacity: 0.9 }}>
-                    📂 {series.sections?.length || 0} Sections | 
-                    {series.category && ` 📚 ${series.category}`}
+
+                  {/* Share button */}
+                  <div style={{
+                    padding: "0 25px 15px 25px",
+                    display: "flex",
+                    justifyContent: "flex-end"
+                  }}>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const url = `https://upexammantra.com/test?series=${series.id}`;
+                        const shareText = `🎓 ${series.title}\n\nUP Exam Mantra pe free mock tests do!\n👉 ${url}`;
+                        if (navigator.share) {
+                          navigator.share({ title: series.title, text: shareText, url });
+                        } else {
+                          navigator.clipboard.writeText(shareText).then(() => alert("✅ Link copied! Share karo apne doston ke saath."));
+                        }
+                      }}
+                      style={{
+                        padding: "8px 18px",
+                        background: selectedSeriesIdx === idx ? "rgba(255,255,255,0.2)" : "#e0e7ff",
+                        color: selectedSeriesIdx === idx ? "#fff" : "#4f46e5",
+                        border: "none",
+                        borderRadius: "8px",
+                        fontWeight: "600",
+                        cursor: "pointer",
+                        fontSize: "0.9rem",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px"
+                      }}
+                    >
+                      📤 Share
+                    </button>
                   </div>
                 </div>
               ))
@@ -470,32 +658,69 @@ export default function Mocktest() {
                 );
               }
               
-              return activeTests.map((test, idx) => {
+              return activeTests.map((test) => {
                 // Find original index in full tests array for selection
                 const originalIdx = currentSection.tests.findIndex(t => t.id === test.id);
                 
                 return (
                   <div
                     key={test.id}
-                    onClick={() => {
-                      setSelectedTestIdx(originalIdx);
-                      if (test.questions && test.questions.length > 0) {
-                        setShowInstructions(true);
-                      } else {
-                        alert("This test has no questions yet. Please ask admin to add questions.");
-                      }
-                    }}
                     style={{
-                      padding: "25px",
                       marginBottom: "15px",
                       background: selectedTestIdx === originalIdx ? "linear-gradient(135deg, #10b981 0%, #059669 100%)" : "#f8fafc",
                       color: selectedTestIdx === originalIdx ? "#fff" : "#1e293b",
                       borderRadius: "15px",
-                      cursor: "pointer",
                       border: selectedTestIdx === originalIdx ? "none" : "2px solid #e2e8f0",
-                      transition: "all 0.3s"
+                      overflow: "hidden"
                     }}
                   >
+                    {/* Clickable test info */}
+                    <div
+                      onClick={async () => {
+                      if (!test.questions || test.questions.length === 0) {
+                        alert("This test has no questions yet. Please ask admin to add questions.");
+                        return;
+                      }
+
+                      // Live test check karo
+                      const schedule = await getLiveTestSchedule(currentSeries.id, currentSection.id, test.id);
+                      const now = Date.now();
+
+                      if (schedule && schedule.isActive) {
+                        // Time window check
+                        if (now < schedule.startTime) {
+                          const startStr = new Date(schedule.startTime).toLocaleString('en-IN');
+                          alert(`⏳ Yeh test abhi live nahi hua hai!\n\nTest start hoga: ${startStr}`);
+                          return;
+                        }
+                        if (now > schedule.endTime) {
+                          alert("⌛ Yeh live test khatam ho gaya hai. Ab yeh test available nahi hai.");
+                          return;
+                        }
+
+                        // One-attempt check
+                        const user = auth.currentUser;
+                        if (user) {
+                          const alreadyAttempted = await checkUserAttemptedLiveTest(user.uid, schedule.id);
+                          if (alreadyAttempted) {
+                            alert(`🚫 Aapne yeh live test pehle de diya hai!\n\nHar Gmail account se sirf ek baar diya ja sakta hai.\n\n(${user.email})`);
+                            return;
+                          }
+                        } else {
+                          alert("❌ Live test dene ke liye pehle login karo!");
+                          return;
+                        }
+
+                        setLiveSchedule(schedule);
+                      } else {
+                        setLiveSchedule(null);
+                      }
+
+                      setSelectedTestIdx(originalIdx);
+                      setShowInstructions(true);
+                    }}
+                      style={{ padding: "25px", cursor: "pointer" }}
+                    >
                     <div style={{ 
                       display: "flex", 
                       justifyContent: "space-between",
@@ -519,6 +744,40 @@ export default function Mocktest() {
                       ⏱️ {test.duration || 60} min | 
                       ✅ +{test.marksPerQuestion || 1} | 
                       ❌ -{test.negativeMarking || 0.25}
+                    </div>
+                    </div>
+
+                    {/* Share button */}
+                    <div style={{ padding: "0 25px 15px 25px", display: "flex", justifyContent: "flex-end" }}>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const url = `https://upexammantra.com/test?series=${currentSeries?.id}&section=${currentSection?.id}&test=${test.id}`;
+                          const shareText = `📝 ${test.title}\n🎓 ${currentSeries?.title}\n\nUP Exam Mantra pe free mock test do!\n👉 ${url}`;
+                          if (navigator.share) {
+                            navigator.share({ title: test.title, text: shareText, url });
+                          } else {
+                            navigator.clipboard.writeText(shareText)
+                              .then(() => alert("✅ Link copy ho gaya! Apne doston ke saath share karo."))
+                              .catch(() => alert("Share karo: " + url));
+                          }
+                        }}
+                        style={{
+                          padding: "8px 18px",
+                          background: selectedTestIdx === originalIdx ? "rgba(255,255,255,0.2)" : "#e0e7ff",
+                          color: selectedTestIdx === originalIdx ? "#fff" : "#4f46e5",
+                          border: "none",
+                          borderRadius: "8px",
+                          fontWeight: "600",
+                          cursor: "pointer",
+                          fontSize: "0.9rem",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "6px"
+                        }}
+                      >
+                        📤 Share
+                      </button>
                     </div>
                   </div>
                 );
@@ -675,6 +934,7 @@ export default function Mocktest() {
                   onClick={() => {
                     setShowInstructions(false);
                     setTestStarted(true);
+                    testStartTimeRef.current = Date.now(); // Test start time record karo
                   }}
                   style={{
                     flex: 2,

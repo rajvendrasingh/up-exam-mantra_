@@ -22,6 +22,16 @@ html, body {
 
 /* Mobile Styles */
 @media screen and (max-width: 768px) {
+  /* Base font size for mobile - Standard 16px */
+  html {
+    font-size: 16px !important;
+  }
+  
+  body {
+    font-size: 16px !important;
+    line-height: 1.5 !important;
+  }
+  
   /* Hide desktop nav, show mobile nav */
   .desktop-nav {
     display: none !important;
@@ -168,7 +178,7 @@ html, body {
     top: 10px !important;
     left: 10px !important;
     padding: 8px 15px !important;
-    font-size: 0.85rem !important;
+    font-size: 0.875rem !important;
   }
   
   /* Test header adjustments */
@@ -190,10 +200,11 @@ html, body {
     max-width: 100% !important;
   }
   
-  /* Buttons responsive */
+  /* Buttons responsive - Standard mobile size */
   button {
-    font-size: 0.9rem !important;
-    padding: 10px 15px !important;
+    font-size: 0.875rem !important; /* 14px */
+    padding: 10px 16px !important;
+    line-height: 1.5 !important;
   }
   
   /* Grid layouts */
@@ -205,27 +216,52 @@ html, body {
   div[style*="padding: 40px"],
   div[style*="padding: 50px"],
   div[style*="padding: 30px"] {
-    padding: 15px !important;
+    padding: 16px !important;
   }
   
-  /* Font sizes */
+  /* Heading font sizes - Mobile optimized */
   h1 {
-    font-size: 1.5rem !important;
+    font-size: 1.75rem !important; /* 28px */
+    line-height: 1.3 !important;
   }
   
   h2 {
-    font-size: 1.3rem !important;
+    font-size: 1.5rem !important; /* 24px */
+    line-height: 1.3 !important;
   }
   
   h3 {
-    font-size: 1.1rem !important;
+    font-size: 1.25rem !important; /* 20px */
+    line-height: 1.4 !important;
+  }
+  
+  h4 {
+    font-size: 1.125rem !important; /* 18px */
+    line-height: 1.4 !important;
+  }
+  
+  /* Paragraph text */
+  p {
+    font-size: 1rem !important; /* 16px */
+    line-height: 1.6 !important;
+  }
+  
+  /* Small text */
+  small, .small-text {
+    font-size: 0.875rem !important; /* 14px */
   }
 }
 
 /* Very small screens */
 @media screen and (max-width: 480px) {
+  /* Base font size slightly smaller for very small screens */
+  html {
+    font-size: 15px !important;
+  }
+  
   body {
-    font-size: 14px !important;
+    font-size: 15px !important;
+    line-height: 1.5 !important;
   }
   
   /* Even more compact header */
@@ -272,9 +308,43 @@ html, body {
     width: 260px !important;
   }
   
+  /* Buttons - Standard mobile size */
   button {
-    font-size: 0.85rem !important;
-    padding: 8px 12px !important;
+    font-size: 0.8125rem !important; /* 13px */
+    padding: 8px 14px !important;
+    line-height: 1.5 !important;
+  }
+  
+  /* Headings for very small screens */
+  h1 {
+    font-size: 1.5rem !important; /* 24px */
+    line-height: 1.3 !important;
+  }
+  
+  h2 {
+    font-size: 1.25rem !important; /* 20px */
+    line-height: 1.3 !important;
+  }
+  
+  h3 {
+    font-size: 1.125rem !important; /* 18px */
+    line-height: 1.4 !important;
+  }
+  
+  h4 {
+    font-size: 1rem !important; /* 16px */
+    line-height: 1.4 !important;
+  }
+  
+  /* Paragraph text */
+  p {
+    font-size: 0.9375rem !important; /* 15px */
+    line-height: 1.6 !important;
+  }
+  
+  /* Small text */
+  small, .small-text {
+    font-size: 0.8125rem !important; /* 13px */
   }
   
   .mobile-menu-btn {

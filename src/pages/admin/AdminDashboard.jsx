@@ -127,7 +127,7 @@ export default function AdminDashboard() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+        background: 'linear-gradient(135deg, #2563EB 0%, #3B82F6 100%)'
       }}>
         <div style={{ textAlign: 'center', color: '#fff' }}>
           <div style={{ fontSize: '3rem', marginBottom: '20px' }}>⏳</div>
@@ -140,7 +140,7 @@ export default function AdminDashboard() {
   return (
     <div style={{
       minHeight: '100vh',
-      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      background: 'linear-gradient(135deg, #2563EB 0%, #3B82F6 100%)',
       padding: '40px 20px'
     }}>
       <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
@@ -164,7 +164,7 @@ export default function AdminDashboard() {
                 margin: 0,
                 fontSize: '2.5rem',
                 fontWeight: '800',
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                background: 'linear-gradient(135deg, #2563EB 0%, #3B82F6 100%)',
                 WebkitBackgroundClip: 'text',
                 WebkitTextFillColor: 'transparent'
               }}>
@@ -181,7 +181,7 @@ export default function AdminDashboard() {
               }}
               style={{
                 padding: '15px 30px',
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                background: 'linear-gradient(135deg, #2563EB 0%, #3B82F6 100%)',
                 color: '#fff',
                 border: 'none',
                 borderRadius: '12px',
@@ -219,7 +219,7 @@ export default function AdminDashboard() {
             boxShadow: '0 4px 15px rgba(0,0,0,0.08)'
           }}>
             <div style={{ fontSize: '2.5rem', marginBottom: '10px' }}>📚</div>
-            <div style={{ fontSize: '2rem', fontWeight: '800', color: '#667eea' }}>
+            <div style={{ fontSize: '2rem', fontWeight: '800', color: '#2563EB' }}>
               {testSeries.length}
             </div>
             <div style={{ color: '#64748b', fontWeight: '600' }}>Total Test Series</div>
@@ -345,7 +345,7 @@ export default function AdminDashboard() {
                       display: 'inline-block',
                       padding: '4px 12px',
                       background: '#e0e7ff',
-                      color: '#667eea',
+                      color: '#2563EB',
                       borderRadius: '20px',
                       fontSize: '0.85rem',
                       fontWeight: '600',
@@ -368,7 +368,7 @@ export default function AdminDashboard() {
                       style={{
                         flex: 1,
                         padding: '10px',
-                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                        background: 'linear-gradient(135deg, #2563EB 0%, #3B82F6 100%)',
                         color: '#fff',
                         border: 'none',
                         borderRadius: '8px',
@@ -553,7 +553,7 @@ export default function AdminDashboard() {
                 style={{
                   flex: 1,
                   padding: '15px',
-                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  background: 'linear-gradient(135deg, #2563EB 0%, #3B82F6 100%)',
                   color: '#fff',
                   border: 'none',
                   borderRadius: '10px',
@@ -590,3 +590,4 @@ export default function AdminDashboard() {
     </div>
   );
 }
+

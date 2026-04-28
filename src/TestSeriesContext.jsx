@@ -2,9 +2,6 @@ import { createContext, useState, useEffect } from "react";
 import { auth } from './firebase';
 import {
   getAllTestSeries,
-  createTestSeries,
-  updateTestSeries,
-  deleteTestSeries,
   createTestAttempt,
   getUserTestAttempts,
   getUserProfile,
@@ -278,10 +275,11 @@ export function TestSeriesProvider({ children }) {
   };
 
   // Reload test series from Firebase
-  const reloadTestSeries = async () => {
+  // includeAll = true hone par admin ke liye sab series load karo
+  const reloadTestSeries = async (includeAll = false) => {
     try {
       setLoading(true);
-      const testSeriesData = await getAllTestSeries(false);
+      const testSeriesData = await getAllTestSeries(includeAll);
       setTestSeries(testSeriesData);
       console.log("Test series reloaded from Firebase");
     } catch (error) {

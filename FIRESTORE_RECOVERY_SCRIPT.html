@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Firestore Test Series Recovery Tool</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        }
+        h1 {
+            color: #2563EB;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .section {
+            margin: 20px 0;
+            padding: 20px;
+            background: #f8fafc;
+            border-radius: 10px;
+            border-left: 4px solid #2563EB;
+        }
+        button {
+            background: linear-gradient(135deg, #2563EB 0%, #3B82F6 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            margin: 10px 0;
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(37, 99, 235, 0.4);
+        }
+        button.success {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+        }
+        button.warning {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+        }
+        #output {
+            background: #1e293b;
+            color: #10b981;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            max-height: 400px;
+            overflow-y: auto;
+            margin-top: 20px;
+            white-space: pre-wrap;
+        }
+        .info {
+            background: #dbeafe;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            border-left: 4px solid #2563EB;
+        }
+        .warning {
+            background: #fef3c7;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            border-left: 4px solid #f59e0b;
+        }
+        .success {
+            background: #d1fae5;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            border-left: 4px solid #10b981;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔄 Firestore Test Series Recovery Tool</h1>
+        
+        <div class="info">
+            <strong>📋 Instructions:</strong><br>
+            1. Yeh tool Firestore se directly test series fetch karta hai<br>
+            2. "Lekhpal" test series ko find karke uska status "active" kar dega<br>
+            3. Iske baad admin panel me visible ho jayegi
+        </div>
+
+        <div class="section">
+            <h3>Step 1: Firestore Connection</h3>
+            <p>Pehle Firebase se connect karo:</p>
+            <button onclick="initFirebase()">🔗 Connect to Firebase</button>
+        </div>
+
+        <div class="section">
+            <h3>Step 2: Find "Lekhpal" Test Series</h3>
+            <p>Firestore me "Lekhpal" test series search karo:</p>
+            <button onclick="findLekhpalSeries()">🔍 Search Lekhpal</button>
+        </div>
+
+        <div class="section">
+            <h3>Step 3: Activate Test Series</h3>
+            <p>Test series ko active (visible) karo:</p>
+            <button class="success" onclick="activateLekhpalSeries()">✅ Activate Lekhpal</button>
+        </div>
+
+        <div class="section">
+            <h3>Step 4: Verify</h3>
+            <p>Check karo ki test series active ho gayi:</p>
+            <button class="warning" onclick="verifyActivation()">🔎 Verify Status</button>
+        </div>
+
+        <div id="output"></div>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { getFirestore, collection, getDocs, doc, updateDoc, query, where } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+
+        // Firebase Configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyDk6yXI-QYd85qd-_1VshveXXHSlm5bKVo",
+            authDomain: "up-exam-mantra.firebaseapp.com",
+            projectId: "up-exam-mantra",
+            storageBucket: "up-exam-mantra.firebasestorage.app",
+            messagingSenderId: "508833223039",
+            appId: "1:508833223039:web:2435b355a5ba4581ad4a4a"
+        };
+
+        let app, db;
+        let lekhpalSeriesId = null;
+
+        function log(message, type = 'info') {
+            const output = document.getElementById('output');
+            const timestamp = new Date().toLocaleTimeString();
+            const icon = type === 'success' ? '✅' : type === 'error' ? '❌' : type === 'warning' ? '⚠️' : 'ℹ️';
+            output.innerHTML += `[${timestamp}] ${icon} ${message}\n`;
+            output.scrollTop = output.scrollHeight;
+        }
+
+        window.initFirebase = function() {
+            try {
+                log('🔗 Connecting to Firebase...', 'info');
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                log('✅ Firebase connected successfully!', 'success');
+                log('📊 Database: up-exam-mantra', 'info');
+            } catch (error) {
+                log('❌ Error connecting to Firebase: ' + error.message, 'error');
+            }
+        };
+
+        window.findLekhpalSeries = async function() {
+            if (!db) {
+                log('❌ Please connect to Firebase first!', 'error');
+                return;
+            }
+
+            try {
+                log('🔍 Searching for "Lekhpal" test series...', 'info');
+                
+                const testSeriesRef = collection(db, 'testSeries');
+                const snapshot = await getDocs(testSeriesRef);
+                
+                log(`📋 Found ${snapshot.size} total test series in database`, 'info');
+                
+                let found = false;
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    log(`\n📝 Test Series: ${data.title}`, 'info');
+                    log(`   ID: ${doc.id}`, 'info');
+                    log(`   Status: ${data.status || 'unknown'}`, 'info');
+                    
+                    // Check if title contains "lekhpal" (case insensitive)
+                    if (data.title && data.title.toLowerCase().includes('lekhpal')) {
+                        found = true;
+                        lekhpalSeriesId = doc.id;
+                        log(`\n🎯 FOUND! Lekhpal test series!`, 'success');
+                        log(`   Title: ${data.title}`, 'success');
+                        log(`   ID: ${doc.id}`, 'success');
+                        log(`   Current Status: ${data.status || 'unknown'}`, 'success');
+                        log(`   Sections: ${data.sections?.length || 0}`, 'info');
+                    }
+                });
+                
+                if (!found) {
+                    log('\n❌ "Lekhpal" test series not found in database!', 'error');
+                    log('💡 Tip: Check spelling or create new test series', 'warning');
+                } else {
+                    log('\n✅ Ready to activate! Click "Activate Lekhpal" button.', 'success');
+                }
+                
+            } catch (error) {
+                log('❌ Error searching: ' + error.message, 'error');
+            }
+        };
+
+        window.activateLekhpalSeries = async function() {
+            if (!db) {
+                log('❌ Please connect to Firebase first!', 'error');
+                return;
+            }
+
+            if (!lekhpalSeriesId) {
+                log('❌ Please search for Lekhpal test series first!', 'error');
+                return;
+            }
+
+            try {
+                log('🔄 Activating Lekhpal test series...', 'info');
+                
+                const seriesRef = doc(db, 'testSeries', lekhpalSeriesId);
+                await updateDoc(seriesRef, {
+                    status: 'active'
+                });
+                
+                log('✅ SUCCESS! Lekhpal test series activated!', 'success');
+                log('🎉 Test series is now visible in admin panel!', 'success');
+                log('👁️ Users can now see and attempt this test series!', 'success');
+                log('\n💡 Next: Refresh admin panel to see changes', 'info');
+                
+            } catch (error) {
+                log('❌ Error activating: ' + error.message, 'error');
+            }
+        };
+
+        window.verifyActivation = async function() {
+            if (!db) {
+                log('❌ Please connect to Firebase first!', 'error');
+                return;
+            }
+
+            if (!lekhpalSeriesId) {
+                log('❌ Please search for Lekhpal test series first!', 'error');
+                return;
+            }
+
+            try {
+                log('🔎 Verifying activation status...', 'info');
+                
+                const testSeriesRef = collection(db, 'testSeries');
+                const snapshot = await getDocs(testSeriesRef);
+                
+                snapshot.forEach((doc) => {
+                    if (doc.id === lekhpalSeriesId) {
+                        const data = doc.data();
+                        log(`\n📊 Lekhpal Test Series Status:`, 'info');
+                        log(`   Title: ${data.title}`, 'info');
+                        log(`   Status: ${data.status}`, data.status === 'active' ? 'success' : 'warning');
+                        log(`   Sections: ${data.sections?.length || 0}`, 'info');
+                        
+                        if (data.status === 'active') {
+                            log('\n✅ VERIFIED! Test series is ACTIVE!', 'success');
+                            log('🎉 Visible in admin panel and to users!', 'success');
+                        } else {
+                            log('\n⚠️ Status is not active!', 'warning');
+                            log('💡 Click "Activate Lekhpal" button again', 'warning');
+                        }
+                    }
+                });
+                
+            } catch (error) {
+                log('❌ Error verifying: ' + error.message, 'error');
+            }
+        };
+
+        // Auto-initialize on page load
+        window.addEventListener('load', () => {
+            log('🚀 Firestore Recovery Tool Ready!', 'success');
+            log('📝 Follow the steps above to recover Lekhpal test series', 'info');
+            log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n', 'info');
+        });
+    </script>
+</body>
+</html>
